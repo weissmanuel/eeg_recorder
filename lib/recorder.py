@@ -8,14 +8,17 @@ from mne.io import RawArray
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import logging
-from typing import Tuple, Union
+from typing import Tuple, Union, List
 from numpy import ndarray
 import time
+from lib.utils import format_seconds
 
 
 class Recorder:
     signal_id: Union[str, None]
     marker_id: Union[str, None]
+
+    safety_offset_seconds: float = 1.0
 
     signal_stream: Union[StreamLSL, None] = None
     marker_stream: Union[StreamInlet, None] = None
@@ -68,7 +71,7 @@ class Recorder:
         self.logger.debug("Connecting to LSL Streams")
         if self.signal_id is not None:
             self.signal_stream = StreamLSL(bufsize=self.buffer_size_seconds, source_id=self.signal_id)
-            self.signal_stream.connect()
+            self.signal_stream.connect(processing_flags=['clocksync', 'dejitter', 'monotize'])
             self.logger.debug(f"Signal Stream Connected with id: {self.signal_id}")
         else:
             self.signal_recording_completed = True
@@ -97,21 +100,48 @@ class Recorder:
             iteration = 0
             marker_values = []
             marker_times = []
-            while self.is_recording:
+
+            start_time: float = local_clock()
+            # sfreq: float = self.signal_stream.info['sfreq']
+            time_shift: float = 0
+
+            recording_stopped_at: Union[float, None] = None
+
+            while self.is_recording or time_shift > -self.safety_offset_seconds:
+                if not self.is_recording and recording_stopped_at is None:
+                    recording_stopped_at = local_clock()
+
                 markers, timestamps = self.marker_stream.pull_chunk()
+
                 if markers is not None and len(markers) > 0:
                     marker_values.append(markers.copy())
                     marker_times.append(timestamps.copy())
+
+                    time_last_received_sample: float = timestamps[-1]
+                    current_time: float = recording_stopped_at if recording_stopped_at is not None else local_clock()
+                    time_shift: float = current_time - time_last_received_sample
+
+                    self.logger.debug(f"Markers Recorded: {len(timestamps)} Markers")
+                    self.logger.debug(f"Time Shift {time_shift}")
+
                     if iteration == 0:
                         self.first_marker_lsl_seconds = timestamps[0].copy()
                         self.first_marker_system_seconds = local_clock()
                         self.first_marker_datetime = datetime.utcnow()
                         self.logger.debug(f"First Marker Time: {self.first_marker_datetime}")
                     iteration += 1
+
+            end_time: float = recording_stopped_at if recording_stopped_at is not None else local_clock()
+
             self.logger.debug(f"Concatenating markers")
             self.marker_values = np.concatenate(marker_values).flatten()
             self.marker_times = np.concatenate(marker_times).flatten().astype(float)
-            self.logger.debug(f"Marker Recording Stopped. Recorded {len(self.marker_values)} markers")
+
+            duration: float = end_time - start_time
+            n_samples: int = len(self.signal_times)
+
+            self.logger.info(f"Marker Recording Stopped. Recorded: {n_samples}, Duration: {format_seconds(duration)}")
+
             if len(self.marker_times) > 1:
                 delta_seconds = self.marker_times[-1] - self.marker_times[0]
                 self.last_marker_datetime = self.first_marker_datetime + timedelta(seconds=delta_seconds)
@@ -122,28 +152,61 @@ class Recorder:
 
     def _handle_signal_recording(self):
         if self.signal_stream is not None and self.signal_stream.connected:
+
             self.logger.debug("Starting Signal Recording")
-            iteration = 0
-            signal_values = []
-            signal_times = []
-            while self.is_recording:
+            iteration: int = 0
+            signal_values: List[ndarray] = []
+            signal_times: List[ndarray] = []
+
+            start_time: float = local_clock()
+            sfreq: float = self.signal_stream.info['sfreq']
+            time_shift: float = 0
+
+            recording_stopped_at: Union[float, None] = None
+
+            while self.is_recording or time_shift > -self.safety_offset_seconds:
+                if not self.is_recording and recording_stopped_at is None:
+                    recording_stopped_at = local_clock()
+
                 window_size = self.signal_stream.n_new_samples / self.signal_stream.info['sfreq']
+
                 if window_size > 0:
-                    values, times = self.signal_stream.get_data(winsize=window_size)
+                    (values, times) = self.signal_stream.get_data(winsize=window_size)
+
                     if values is not None and len(values) > 0:
                         signal_values.append(values.copy())
                         signal_times.append(times.copy())
-                        self.logger.info(f"Signal Recorded {len(times)} samples")
+
+                        time_last_received_sample: float = times[-1]
+                        current_time: float = recording_stopped_at if recording_stopped_at is not None else local_clock()
+                        time_shift: float = current_time - time_last_received_sample
+
                         if iteration == 0:
                             self.first_signal_lsl_seconds = times[0].copy()
                             self.first_signal_system_seconds = local_clock()
                             self.first_signal_datetime = datetime.utcnow()
                             self.logger.debug(f"First Signal Time: {self.first_signal_datetime}")
+
                         iteration += 1
+
+            end_time: float = recording_stopped_at if recording_stopped_at is not None else local_clock()
+
             self.logger.debug(f"Concatenating signals")
             self.signal_values = np.concatenate(signal_values, axis=1)
             self.signal_times = np.concatenate(signal_times).flatten().astype(float)
-            self.logger.debug(f"Signal Recording Stopped. Recorded {len(self.signal_values)} windows")
+
+            duration: float = end_time - start_time
+            expected_samples: int = math.ceil(duration * sfreq)
+            n_samples: int = len(self.signal_times)
+            difference: int = expected_samples - n_samples
+
+            if difference > 0:
+                self.logger.warning(f"Recorded less samples than expected: {difference} samples")
+
+            self.logger.info(f"Signal Recording Stopped. Recorded: {n_samples}, Expected: {expected_samples}, "
+                             f"Difference: {difference}, Duration: {format_seconds(duration)}")
+            # np.abs(np.abs(np.diff(np.abs(self.signal_times - start_time))) - 1 / sfreq)
+
             if len(self.signal_values) > 1:
                 delta_seconds = self.signal_times[-1] - self.signal_times[0]
                 self.last_signal_datetime = self.first_signal_datetime + timedelta(seconds=delta_seconds)
@@ -231,14 +294,18 @@ class Recorder:
         print(f"Recording Started at: {self.recording_start_time}")
         print(f"Recording Ended at: {self.recording_end_time}")
         print(f"Recoding Duration: {self.recording_end_time - self.recording_start_time} \n")
+
         if self.signal_stream is not None:
             print(f"First Signal Time: {self.first_signal_datetime}")
             print(f"Last Signal Time: {self.last_signal_datetime}")
-            print(f"Signal Recording Duration: {self.last_signal_datetime - self.first_signal_datetime}")
+            signal_duration = self.last_signal_datetime - self.first_signal_datetime
+            print(f"Signal Recording Duration: {format_seconds(signal_duration.seconds)}")
             print(f"Number of Signal Windows: {len(self.signal_values)} \n")
+
         if self.marker_stream is not None:
             print(f"First Marker Time: {self.first_marker_datetime}")
             print(f"Last Marker Time: {self.last_marker_datetime}")
-            print(f"Marker Recording Duration: {self.last_marker_datetime - self.first_marker_datetime}")
+            marker_duration = self.last_marker_datetime - self.first_marker_datetime
+            print(f"Marker Recording Duration: {format_seconds(marker_duration.seconds)}")
             print(f"Number of Markers: {len(self.marker_values)}")
         print("--------------------------------------------------------------------------------------")

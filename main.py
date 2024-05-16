@@ -1,6 +1,7 @@
 from lib.recorder import Recorder
 from lib.interface import Interface
 
+
 def start(recorder: Recorder, interface: Interface):
     interface.set_status(text="Start Recording...")
     recorder.start()
