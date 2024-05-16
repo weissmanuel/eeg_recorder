@@ -16,12 +16,13 @@ import logging
 from typing import Tuple, Union
 from numpy import ndarray
 
+
 class Recorder:
     signal_id: Union[str, None]
     marker_id: Union[str, None]
 
-    signal_stream: StreamLSL
-    marker_stream: any
+    signal_stream: Union[StreamLSL, None] = None
+    marker_stream: Union[StreamInlet, None] = None
 
     signal_values: ndarray = []
     signal_times: ndarray = []
@@ -73,6 +74,8 @@ class Recorder:
             self.signal_stream = StreamLSL(bufsize=self.buffer_size_seconds, source_id=self.signal_id)
             self.signal_stream.connect()
             self.logger.debug(f"Signal Stream Connected with id: {self.signal_id}")
+        else:
+            self.signal_recording_completed = True
 
         if self.marker_id is not None:
             streams = resolve_streams(source_id=self.marker_id)
@@ -80,10 +83,16 @@ class Recorder:
                 self.marker_stream = StreamInlet(streams[0])
                 self.marker_stream.open_stream()
                 self.logger.debug(f"Marker Stream Connected with id: {self.marker_id}")
+            else:
+                self.logger.info("No marker Stream Connected -> Ignoring Marker Recording")
+                self.marker_recording_completed = True
+        else:
+            self.marker_recording_completed = True
 
     def disconnect(self):
         self.logger.debug("Disconnecting from LSL Streams")
-        self.signal_stream.disconnect()
+        if self.signal_stream is not None:
+            self.signal_stream.disconnect()
         if self.marker_stream is not None:
             self.marker_stream.close_stream()
 
@@ -116,34 +125,36 @@ class Recorder:
             self.marker_recording_completed = True
 
     def _handle_signal_recording(self):
-        self.logger.debug("Starting Signal Recording")
-        iteration = 0
-        signal_values = []
-        signal_times = []
-        while self.is_recording:
-            window_size = self.signal_stream.n_new_samples / self.signal_stream.info['sfreq']
-            if window_size > 0:
-                values, times = self.signal_stream.get_data(winsize=window_size)
-                if values is not None and len(values) > 0:
-                    signal_values.append(values.copy())
-                    signal_times.append(times.copy())
-                    if iteration == 0:
-                        self.first_signal_lsl_seconds = times[0].copy()
-                        self.first_signal_system_seconds = local_clock()
-                        self.first_signal_datetime = datetime.utcnow()
-                        self.logger.debug(f"First Signal Time: {self.first_signal_datetime}")
-                    iteration += 1
-        self.logger.debug(f"Concatenating signals")
-        self.signal_values = np.concatenate(signal_values, axis=1)
-        self.signal_times = np.concatenate(signal_times).flatten().astype(float)
-        self.logger.debug(f"Signal Recording Stopped. Recorded {len(self.signal_values)} windows")
-        if len(self.signal_values) > 1:
-            delta_seconds = self.signal_times[-1] - self.signal_times[0]
-            self.last_signal_datetime = self.first_signal_datetime + timedelta(seconds=delta_seconds)
-        else:
-            self.last_signal_datetime = self.first_signal_datetime
-        self.logger.debug("Finished Signal Recording")
-        self.signal_recording_completed = True
+        if self.signal_stream is not None and self.signal_stream.connected:
+            self.logger.debug("Starting Signal Recording")
+            iteration = 0
+            signal_values = []
+            signal_times = []
+            while self.is_recording:
+                window_size = self.signal_stream.n_new_samples / self.signal_stream.info['sfreq']
+                if window_size > 0:
+                    values, times = self.signal_stream.get_data(winsize=window_size)
+                    if values is not None and len(values) > 0:
+                        signal_values.append(values.copy())
+                        signal_times.append(times.copy())
+                        self.logger.info(f"Signal Recorded {len(times)} samples")
+                        if iteration == 0:
+                            self.first_signal_lsl_seconds = times[0].copy()
+                            self.first_signal_system_seconds = local_clock()
+                            self.first_signal_datetime = datetime.utcnow()
+                            self.logger.debug(f"First Signal Time: {self.first_signal_datetime}")
+                        iteration += 1
+            self.logger.debug(f"Concatenating signals")
+            self.signal_values = np.concatenate(signal_values, axis=1)
+            self.signal_times = np.concatenate(signal_times).flatten().astype(float)
+            self.logger.debug(f"Signal Recording Stopped. Recorded {len(self.signal_values)} windows")
+            if len(self.signal_values) > 1:
+                delta_seconds = self.signal_times[-1] - self.signal_times[0]
+                self.last_signal_datetime = self.first_signal_datetime + timedelta(seconds=delta_seconds)
+            else:
+                self.last_signal_datetime = self.first_signal_datetime
+            self.logger.debug("Finished Signal Recording")
+            self.signal_recording_completed = True
 
     def reset_recording(self):
         self.signal_values = np.array([])
@@ -153,7 +164,10 @@ class Recorder:
         self.first_signal_system_seconds = 0
         self.first_marker_lsl_seconds = 0
         self.first_marker_system_seconds = 0
-        self.signal_recording_completed = False
+        if self.signal_stream is not None:
+            self.signal_recording_completed = False
+        if self.marker_stream is not None:
+            self.marker_recording_completed = False
 
     def start(self):
         if not self.is_recording:
@@ -163,12 +177,14 @@ class Recorder:
             self.reset_recording()
             self.is_recording = True
             self.recording_start_time = datetime.utcnow()
-            self._signal_thread = Thread(target=self._handle_signal_recording)
-            self._signal_thread.daemon = True
-            self._signal_thread.start()
-            self._marker_thread = Thread(target=self._handle_marker_recording)
-            self._marker_thread.daemon = True
-            self._marker_thread.start()
+            if self.signal_stream is not None:
+                self._signal_thread = Thread(target=self._handle_signal_recording)
+                self._signal_thread.daemon = True
+                self._signal_thread.start()
+            if self.marker_stream is not None:
+                self._marker_thread = Thread(target=self._handle_marker_recording)
+                self._marker_thread.daemon = True
+                self._marker_thread.start()
 
     def stop(self):
         if self.is_recording:
@@ -186,9 +202,10 @@ class Recorder:
         self.logger.info("Generating MNE Raw Object")
         info = self.signal_stream.info.copy()
         raw = RawArray(self.signal_values, info)
-        marker_times = self.marker_times - self.first_signal_lsl_seconds
-        raw.set_annotations(mne.Annotations(onset=marker_times, duration=[0.05] * len(marker_times),
-                                            description=self.marker_values.astype(str)))
+        if self.marker_stream is not None and self.marker_values is not None and len(self.marker_values) > 0:
+            marker_times = self.marker_times - self.first_signal_lsl_seconds
+            raw.set_annotations(mne.Annotations(onset=marker_times, duration=[0.05] * len(marker_times),
+                                                description=self.marker_values.astype(str)))
         raw.set_meas_date(self.first_signal_datetime.replace(tzinfo=timezone.utc).timestamp())
         if len(raw.info['device_info']) == 0:
             raw.info['device_info'] = None
@@ -218,16 +235,16 @@ class Recorder:
         print(f"Recording Started at: {self.recording_start_time}")
         print(f"Recording Ended at: {self.recording_end_time}")
         print(f"Recoding Duration: {self.recording_end_time - self.recording_start_time} \n")
-
-        print(f"First Signal Time: {self.first_signal_datetime}")
-        print(f"Last Signal Time: {self.last_signal_datetime}")
-        print(f"Signal Recording Duration: {self.last_signal_datetime - self.first_signal_datetime}")
-        print(f"Number of Signal Windows: {len(self.signal_values)} \n")
-
-        print(f"First Marker Time: {self.first_marker_datetime}")
-        print(f"Last Marker Time: {self.last_marker_datetime}")
-        print(f"Marker Recording Duration: {self.last_marker_datetime - self.first_marker_datetime}")
-        print(f"Number of Markers: {len(self.marker_values)}")
+        if self.signal_stream is not None:
+            print(f"First Signal Time: {self.first_signal_datetime}")
+            print(f"Last Signal Time: {self.last_signal_datetime}")
+            print(f"Signal Recording Duration: {self.last_signal_datetime - self.first_signal_datetime}")
+            print(f"Number of Signal Windows: {len(self.signal_values)} \n")
+        if self.marker_stream is not None:
+            print(f"First Marker Time: {self.first_marker_datetime}")
+            print(f"Last Marker Time: {self.last_marker_datetime}")
+            print(f"Marker Recording Duration: {self.last_marker_datetime - self.first_marker_datetime}")
+            print(f"Number of Markers: {len(self.marker_values)}")
         print("--------------------------------------------------------------------------------------")
 
 
@@ -239,8 +256,6 @@ def start(recorder: Recorder, root: Tk):
     message.pack()
 
 
-
-
 def stop(recorder: Recorder, root: Tk):
     message = tk.Label(root, text="Stopping Recording...")
     message.pack()
@@ -250,7 +265,7 @@ def stop(recorder: Recorder, root: Tk):
 
 
 def main():
-    recorder = Recorder(signal_id='rsvp_eeg', marker_id='rsvp_markers', buffer_size_seconds=60)
+    recorder = Recorder(signal_id='UN-2023.05.69', marker_id=None, buffer_size_seconds=60)
     root = tk.Tk()
     root.geometry("200x200")
     start_button = tk.Button(root, text="Start", command=lambda: start(recorder, root))
