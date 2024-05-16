@@ -13,7 +13,7 @@ import tkinter as tk
 from tkinter import Tk
 from pathlib import Path
 import logging
-from typing import Tuple, Union
+from typing import Tuple, Union, Callable
 from numpy import ndarray
 
 
@@ -248,12 +248,19 @@ class Recorder:
         print("--------------------------------------------------------------------------------------")
 
 
+class Interface:
+
+    def __init__(self, start_action: Callable, stop_action: Callable, geometry: str = '600x200'):
+        self.root = tk.Tk()
+        self.root.geometry(geometry)
+        self.root.title("EEG Recorder")
+
+
 def start(recorder: Recorder, root: Tk):
     message = tk.Label(root, text="Start Recording")
     message.pack()
     recorder.start()
-    message = tk.Label(root, text="Recording...")
-    message.pack()
+    message.config(text="Recording...")
 
 
 def stop(recorder: Recorder, root: Tk):
@@ -263,15 +270,17 @@ def stop(recorder: Recorder, root: Tk):
     message = tk.Label(root, text="Recording Completed and Saved")
     message.pack()
 
+def setup_window()
+
 
 def main():
     recorder = Recorder(signal_id='UN-2023.05.69', marker_id=None, buffer_size_seconds=60)
-    root = tk.Tk()
-    root.geometry("200x200")
-    start_button = tk.Button(root, text="Start", command=lambda: start(recorder, root))
-    start_button.pack()
+
+
+
+    start_button.grid(row=0, column=0, pady=10, padx=10, sticky='e')
     stop_button = tk.Button(root, text="Stop", command=lambda: stop(recorder, root))
-    stop_button.pack()
+    stop_button.grid(row=0, column=1, pady=10, padx=10, sticky='e')
     root.mainloop()
 
 
