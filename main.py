@@ -250,38 +250,63 @@ class Recorder:
 
 class Interface:
 
-    def __init__(self, start_action: Callable, stop_action: Callable, geometry: str = '600x200'):
+    def __init__(self, geometry: str = '600x200'):
         self.root = tk.Tk()
         self.root.geometry(geometry)
         self.root.title("EEG Recorder")
+        self.root.iconbitmap("./assets/favicon.ico")
+
+        self.status_label = tk.Label(self.root, text="Status:")
+        self.status_label.grid(row=0, column=0, pady=10, padx=10, sticky='s')
+
+        self.status_value = tk.Label(self.root, text="Idle")
+        self.status_value.grid(row=0, column=1, pady=10, padx=10, sticky='s')
+
+        self.start_button = tk.Button(self.root, text="Start", command=lambda: print("Starting EEG Recorder"), width=20,
+                                      height=5)
+        self.start_button.grid(row=1, column=0, pady=10, padx=10, sticky='e')
+
+        self.stop_button = tk.Button(self.root, text="Stop", command=lambda: print("Stopping EEG Recorder"), width=20,
+                                     height=5)
+        self.stop_button.grid(row=1, column=1, pady=10, padx=10, sticky='e')
 
 
-def start(recorder: Recorder, root: Tk):
-    message = tk.Label(root, text="Start Recording")
-    message.pack()
+
+    def set_start_action(self, start_action: Callable) -> 'Interface':
+        self.start_button.config(command=start_action)
+        return self
+
+    def set_stop_action(self, stop_action: Callable) -> 'Interface':
+        self.stop_button.config(command=stop_action)
+        return self
+
+    def set_status(self, text: str) -> 'Interface':
+        self.status_value.config(text=text)
+        return self
+
+    def run(self):
+        self.root.mainloop()
+
+
+def start(recorder: Recorder, interface: Interface):
+    interface.set_status(text="Start Recording...")
     recorder.start()
-    message.config(text="Recording...")
+    interface.set_status(text="Recording...")
 
 
-def stop(recorder: Recorder, root: Tk):
-    message = tk.Label(root, text="Stopping Recording...")
-    message.pack()
+def stop(recorder: Recorder, interface: Interface):
+    interface.set_status(text="Stop Recording...")
     recorder.complete("./data/recordings/test_raw.fif")
-    message = tk.Label(root, text="Recording Completed and Saved")
-    message.pack()
-
-def setup_window()
+    interface.set_status(text="Recording Completed")
 
 
 def main():
     recorder = Recorder(signal_id='UN-2023.05.69', marker_id=None, buffer_size_seconds=60)
+    interface = Interface()
+    interface.set_start_action(lambda: start(recorder, interface))
+    interface.set_stop_action(lambda: stop(recorder, interface))
 
-
-
-    start_button.grid(row=0, column=0, pady=10, padx=10, sticky='e')
-    stop_button = tk.Button(root, text="Stop", command=lambda: stop(recorder, root))
-    stop_button.grid(row=0, column=1, pady=10, padx=10, sticky='e')
-    root.mainloop()
+    interface.run()
 
 
 if __name__ == "__main__":
