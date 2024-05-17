@@ -8,10 +8,24 @@ from mne.io import RawArray
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import logging
-from typing import Tuple, Union, List
+from typing import Tuple, Union, List, Callable
 from numpy import ndarray
 import time
 from lib.utils import format_seconds
+
+
+class InletInfo:
+    iteration: int
+    time_shift: float
+    n_received: int
+    n_total: int
+
+    def __init__(self, iteration: int, time_shift: float, n_received: int, n_total: int):
+        self.iteration = iteration
+        self.time_shift = time_shift
+        self.n_received = n_received
+        self.n_total = n_total
+
 
 
 class Recorder:
@@ -107,7 +121,7 @@ class Recorder:
 
             recording_stopped_at: Union[float, None] = None
 
-            while self.is_recording or time_shift > -self.safety_offset_seconds:
+            while self.is_recording:
                 if not self.is_recording and recording_stopped_at is None:
                     recording_stopped_at = local_clock()
 
@@ -190,6 +204,7 @@ class Recorder:
                         iteration += 1
 
             end_time: float = recording_stopped_at if recording_stopped_at is not None else local_clock()
+            print("pp")
 
             self.logger.debug(f"Concatenating signals")
             self.signal_values = np.concatenate(signal_values, axis=1)
@@ -236,10 +251,12 @@ class Recorder:
             self.reset_recording()
             self.is_recording = True
             self.recording_start_time = datetime.utcnow()
+
             if self.signal_stream is not None:
                 self._signal_thread = Thread(target=self._handle_signal_recording)
                 self._signal_thread.daemon = True
                 self._signal_thread.start()
+
             if self.marker_stream is not None:
                 self._marker_thread = Thread(target=self._handle_marker_recording)
                 self._marker_thread.daemon = True
