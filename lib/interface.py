@@ -1,15 +1,15 @@
 import customtkinter as tk
 from typing import Callable
-from lib.recorder import InletInfo
+from lib.recorder import InletInfo, RecordingInfo
 import numpy as np
 
 
 class KeyValue:
 
-    def __init__(self, parent, key: str, value: str, row: int = 0):
+    def __init__(self, parent, key: str, value: str, row: int = 0, value_anchor='e'):
         self.key = tk.CTkLabel(parent, text=key, anchor='w')
         self.key.grid(row=row, column=0, pady=5, padx=10, sticky='nsew')
-        self.value = tk.CTkLabel(parent, text=value, anchor='e')
+        self.value = tk.CTkLabel(parent, text=value, anchor=value_anchor)
         self.value.grid(row=row, column=1, pady=5, padx=10, sticky='nsew')
 
     def update_key(self, text: str):
@@ -24,17 +24,27 @@ class StreamInfo(tk.CTkFrame):
     def __init__(self, master, title: str):
         super().__init__(master)
 
-        self.title = KeyValue(self, key=title, value='', row=0)
-        self.total = KeyValue(self, key='Total', value='0', row=1)
-        self.received = KeyValue(self, key='Last Received:', value='0', row=2)
+        self.grid(pady=(0, 20))
+
+        self.title = tk.CTkLabel(self, text=title, anchor='n', font=tk.CTkFont(weight='bold'))
+        self.title.grid(row=0, column=0, pady=(20, 0), padx=5, sticky='nsew')
+
+        self.source_id = KeyValue(self, key='Source ID', value='0', row=1)
+        self.sfreq = KeyValue(self, key='Sample Frequency:', value='0', row=2)
         self.time_shift = KeyValue(self, key='Time Shift:', value='0', row=3)
-        self.iteration = KeyValue(self, key='Iteration:', value='0', row=4)
+        self.n_channels = KeyValue(self, key='# Channels:', value='0', row=3)
+        self.samples_recorded = KeyValue(self, key='Samples Recorded:', value='0', row=4)
+        self.samples_expected = KeyValue(self, key='Samples Expected:', value='0', row=5)
+        self.iterations = KeyValue(self, key='Iterations:', value='0', row=6)
 
     def update_info(self, info: InletInfo):
-        self.total.update_value(str(info.n_total))
-        self.received.update_value(str(info.n_received))
+        self.source_id.update_value(info.source_id)
+        self.sfreq.update_value(str(info.sfreq))
+        self.n_channels.update_value(str(info.n_channels))
         self.time_shift.update_value(str(np.round(info.time_shift, 4)))
-        self.iteration.update_value(str(info.iteration))
+        self.samples_recorded.update_value(str(info.samples_recorded))
+        self.samples_expected.update_value(str(info.samples_expected))
+        self.iterations.update_value(str(info.iterations))
 
 
 class Header(tk.CTkFrame):
@@ -51,10 +61,10 @@ class Header(tk.CTkFrame):
         self.header_box_right = tk.CTkFrame(self, fg_color='transparent')
         self.header_box_right.grid(row=0, column=1)
 
-        self.status_label = tk.CTkLabel(self.header_box_left, text="Status:")
+        self.status_label = tk.CTkLabel(self.header_box_left, text="Status:", font=tk.CTkFont(weight='bold'))
         self.status_label.grid(row=0, column=0, pady=10, padx=10, sticky='s')
 
-        self.status_value = tk.CTkLabel(self.header_box_right, text="Idle")
+        self.status_value = tk.CTkLabel(self.header_box_right, text="Idle", font=tk.CTkFont(weight='bold'))
         self.status_value.grid(row=0, column=1, pady=10, padx=10, sticky='s')
 
         self.start_button = tk.CTkButton(self.header_box_left, text="Start",
@@ -87,12 +97,26 @@ class Footer(tk.CTkFrame):
     def __init__(self, parent):
         super().__init__(parent)
 
-        self.grid(row=2, column=0, sticky='nsew', padx=10, pady=10)
+        self.grid(row=2, column=0, sticky='nsew', padx=10, pady=20)
+
+        self.title = tk.CTkLabel(self, text="EEG Recording Info", anchor='n', font=tk.CTkFont(weight='bold'))
+        self.title.grid(row=0, column=0, pady=(20, 0), padx=10, sticky='nsew')
+
+        self.start_time = KeyValue(self, key='Start Time:', value='', row=1)
+        self.end_time = KeyValue(self, key='End Time:', value='', row=2)
+        self.duration = KeyValue(self, key='Duration:', value='', row=3)
+        self.file_path = KeyValue(self, key='File Path:', value='', row=4)
+
+    def update_info(self, info: RecordingInfo):
+        self.start_time.update_value(str(info.start_time))
+        self.end_time.update_value(str(info.end_time))
+        self.duration.update_value(str(info.duration))
+        self.file_path.update_value(str(info.file_path))
 
 
 class Interface(tk.CTk):
 
-    def __init__(self, geometry: str = '600x600'):
+    def __init__(self, geometry: str = '600x650'):
         super().__init__()
         tk.set_appearance_mode("dark")
         self.title("EEG Recorder")
@@ -119,6 +143,12 @@ class Interface(tk.CTk):
 
     def set_status(self, text: str) -> 'Interface':
         self.header.status_value.configure(text=text)
+        return self
+
+    def set_recording_info(self, info: RecordingInfo) -> 'Interface':
+        self.body.signal_section.update_info(info.signal_info)
+        self.body.marker_section.update_info(info.marker_info)
+        self.footer.update_info(info)
         return self
 
     def set_signal_progress(self, info: InletInfo) -> None:

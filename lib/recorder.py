@@ -15,17 +15,54 @@ from lib.utils import format_seconds
 
 
 class InletInfo:
-    iteration: int
-    time_shift: float
-    n_received: int
-    n_total: int
+    source_id: str | None
+    sfreq: float | None
+    n_channels: int | None
+    iterations: int | None
+    time_shift: float | None
+    samples_recorded: int | None
+    samples_expected: int | None
 
-    def __init__(self, iteration: int, time_shift: float, n_received: int, n_total: int):
-        self.iteration = iteration
+    def __init__(self,
+                 source_id: str | None = None,
+                 sfreq: float | None = None,
+                 n_channels: int | None = None,
+                 iterations: int | None = None,
+                 time_shift: float | None = None,
+                 samples_recorded: int | None = None,
+                 samples_expected: int | None = None):
+        self.source_id = source_id
+        self.sfreq = sfreq
+        self.n_channels = n_channels
+        self.iterations = iterations
         self.time_shift = time_shift
-        self.n_received = n_received
-        self.n_total = n_total
+        self.samples_recorded = samples_recorded
+        self.samples_expected = samples_expected
 
+
+class RecordingInfo:
+    start_time: datetime
+    end_time: datetime
+    duration: timedelta
+
+    signal_info: InletInfo
+    marker_info: InletInfo
+
+    file_path: str
+
+    def __init__(self,
+                 start_time: datetime | None = None,
+                 end_time: datetime | None = None,
+                 duration: timedelta | float | None = None,
+                 signal_info: InletInfo | None = None,
+                 marker_info: InletInfo | None = None,
+                 file_path: str | None = None):
+        self.start_time = start_time
+        self.end_time = end_time
+        self.duration = duration
+        self.signal_info = signal_info
+        self.marker_info = marker_info
+        self.file_path = file_path
 
 
 class Recorder:
@@ -56,12 +93,15 @@ class Recorder:
     log_level: int = logging.INFO
     logger = logging.getLogger(__name__)
 
-    recording_start_time: datetime
-    recording_end_time: datetime
-    first_signal_datetime: datetime
-    last_signal_datetime: datetime
-    first_marker_datetime: datetime
-    last_marker_datetime: datetime
+    recording_start_time: datetime | None = None
+    recording_end_time: datetime | None = None
+    first_signal_datetime: datetime | None = None
+    last_signal_datetime: datetime | None = None
+    first_marker_datetime: datetime | None = None
+    last_marker_datetime: datetime | None = None
+
+    signal_time_shift: float | None
+    marker_time_shift: float | None
 
     def __init__(self, signal_id: str, marker_id: str | None, buffer_size_seconds: float):
         logging.basicConfig(level=self.log_level)
@@ -117,7 +157,7 @@ class Recorder:
 
             start_time: float = local_clock()
             # sfreq: float = self.signal_stream.info['sfreq']
-            time_shift: float = 0
+            self.marker_time_shift = 0
 
             recording_stopped_at: Union[float, None] = None
 
@@ -133,10 +173,10 @@ class Recorder:
 
                     time_last_received_sample: float = timestamps[-1]
                     current_time: float = recording_stopped_at if recording_stopped_at is not None else local_clock()
-                    time_shift: float = current_time - time_last_received_sample
+                    self.marker_time_shift: float = current_time - time_last_received_sample
 
                     self.logger.debug(f"Markers Recorded: {len(timestamps)} Markers")
-                    self.logger.debug(f"Time Shift {time_shift}")
+                    self.logger.debug(f"Time Shift {self.marker_time_shift}")
 
                     if iteration == 0:
                         self.first_marker_lsl_seconds = timestamps[0].copy()
@@ -144,12 +184,13 @@ class Recorder:
                         self.first_marker_datetime = datetime.utcnow()
                         self.logger.debug(f"First Marker Time: {self.first_marker_datetime}")
                     iteration += 1
+                time.sleep(0.01)
 
             end_time: float = recording_stopped_at if recording_stopped_at is not None else local_clock()
 
             self.logger.debug(f"Concatenating markers")
-            self.marker_values = np.concatenate(marker_values).flatten()
-            self.marker_times = np.concatenate(marker_times).flatten().astype(float)
+            self.marker_values = np.concatenate(marker_values).flatten() if len(marker_values) > 0 else np.array([])
+            self.marker_times = np.concatenate(marker_times).flatten().astype(float) if len(marker_times) > 0 else np.array([])
 
             duration: float = end_time - start_time
             n_samples: int = len(self.signal_times)
@@ -174,11 +215,11 @@ class Recorder:
 
             start_time: float = local_clock()
             sfreq: float = self.signal_stream.info['sfreq']
-            time_shift: float = 0
+            self.signal_time_shift: float = 0
 
             recording_stopped_at: Union[float, None] = None
 
-            while self.is_recording or time_shift > -self.safety_offset_seconds:
+            while self.is_recording or self.signal_time_shift > -self.safety_offset_seconds:
                 if not self.is_recording and recording_stopped_at is None:
                     recording_stopped_at = local_clock()
 
@@ -193,7 +234,7 @@ class Recorder:
 
                         time_last_received_sample: float = times[-1]
                         current_time: float = recording_stopped_at if recording_stopped_at is not None else local_clock()
-                        time_shift: float = current_time - time_last_received_sample
+                        self.signal_time_shift = current_time - time_last_received_sample
 
                         if iteration == 0:
                             self.first_signal_lsl_seconds = times[0].copy()
@@ -202,13 +243,14 @@ class Recorder:
                             self.logger.debug(f"First Signal Time: {self.first_signal_datetime}")
 
                         iteration += 1
+                time.sleep(0.01)
 
             end_time: float = recording_stopped_at if recording_stopped_at is not None else local_clock()
             print("pp")
 
             self.logger.debug(f"Concatenating signals")
-            self.signal_values = np.concatenate(signal_values, axis=1)
-            self.signal_times = np.concatenate(signal_times).flatten().astype(float)
+            self.signal_values = np.concatenate(signal_values, axis=1) if len(signal_values) > 0 else np.array([])
+            self.signal_times = np.concatenate(signal_times).flatten().astype(float) if len(signal_times) > 0 else np.array([])
 
             duration: float = end_time - start_time
             expected_samples: int = math.ceil(duration * sfreq)
@@ -297,12 +339,42 @@ class Recorder:
         self.logger.info(f"Saved raw data to {file_path}")
         return raw, file_path
 
-    def complete(self, file_path: str) -> Tuple[RawArray, Path]:
+    def complete(self, file_path: str) -> Tuple[RawArray, RecordingInfo]:
         self.stop()
         raw, path = self.save_raw(file_path)
+        info = self.get_info()
+        info.file_path = path
         self.disconnect()
         self.logger.info("Recording Completed")
-        return raw, path
+        return raw, info
+
+    def get_info(self) -> RecordingInfo:
+        signal_info = InletInfo()
+        if self.signal_stream is not None:
+            signal_info.source_id = self.signal_stream.source_id
+            signal_info.sfreq = self.signal_stream.info['sfreq']
+            signal_info.n_channels = len(self.signal_stream.ch_names)
+            signal_info.iterations = len(self.signal_values)
+            signal_info.time_shift = self.signal_time_shift
+            signal_info.samples_recorded = len(self.signal_values)
+            signal_info.samples_expected = math.ceil((self.recording_end_time - self.recording_start_time).seconds * signal_info.sfreq)
+
+        marker_info = InletInfo()
+        if self.marker_stream is not None:
+            marker_info.source_id = self.marker_stream.name
+            marker_info.sfreq = self.marker_stream.sfreq
+            marker_info.n_channels = self.marker_stream.n_channels
+            marker_info.iterations = len(self.marker_values)
+            marker_info.time_shift = self.marker_time_shift
+            marker_info.samples_recorded = len(self.marker_values)
+            marker_info.samples_expected = math.ceil((self.recording_end_time - self.recording_start_time).seconds * marker_info.sfreq)
+
+        return RecordingInfo(start_time=self.recording_start_time,
+                             end_time=self.recording_end_time,
+                             duration=self.recording_end_time - self.recording_start_time,
+                             signal_info=signal_info,
+                             marker_info=marker_info,
+                             file_path=None)
 
     def summary(self):
         print("--------------------------------------------------------------------------------------")
@@ -322,7 +394,10 @@ class Recorder:
         if self.marker_stream is not None:
             print(f"First Marker Time: {self.first_marker_datetime}")
             print(f"Last Marker Time: {self.last_marker_datetime}")
-            marker_duration = self.last_marker_datetime - self.first_marker_datetime
+            if self.last_marker_datetime is not None and self.first_marker_datetime is not None:
+                marker_duration = self.last_marker_datetime - self.first_marker_datetime
+            else:
+                marker_duration = timedelta(seconds=0)
             print(f"Marker Recording Duration: {format_seconds(marker_duration.seconds)}")
             print(f"Number of Markers: {len(self.marker_values)}")
         print("--------------------------------------------------------------------------------------")
