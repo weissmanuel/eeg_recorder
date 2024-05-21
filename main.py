@@ -16,8 +16,9 @@ def stop(recorder: Recorder, interface: Interface):
 
 
 def main():
+    recorder = Recorder(signal_id='UN-2023.05.69', marker_id=None, buffer_size_seconds=60)
     # recorder = Recorder(signal_id='UN-2023.05.69', marker_id='rsvp_markers', buffer_size_seconds=60)
-    recorder = Recorder(signal_id='rsvp_eeg', marker_id='rsvp_markers', buffer_size_seconds=60)
+    # recorder = Recorder(signal_id='rsvp_eeg', marker_id='rsvp_markers', buffer_size_seconds=60)
     interface = Interface()
     interface.set_start_action(lambda: start(recorder, interface))
     interface.set_stop_action(lambda: stop(recorder, interface))

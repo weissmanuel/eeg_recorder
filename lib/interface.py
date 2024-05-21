@@ -19,6 +19,13 @@ class KeyValue:
         self.value.configure(text=text)
 
 
+def safe_update_value(attribute: KeyValue, value: any):
+    if value is not None:
+        if isinstance(value, float):
+            value = round(value, 4)
+        attribute.update_value(str(value))
+
+
 class StreamInfo(tk.CTkFrame):
 
     def __init__(self, master, title: str):
@@ -29,22 +36,22 @@ class StreamInfo(tk.CTkFrame):
         self.title = tk.CTkLabel(self, text=title, anchor='n', font=tk.CTkFont(weight='bold'))
         self.title.grid(row=0, column=0, pady=(20, 0), padx=5, sticky='nsew')
 
-        self.source_id = KeyValue(self, key='Source ID', value='0', row=1)
+        self.source_id = KeyValue(self, key='Source ID', value='', row=1)
         self.sfreq = KeyValue(self, key='Sample Frequency:', value='0', row=2)
-        self.time_shift = KeyValue(self, key='Time Shift:', value='0', row=3)
         self.n_channels = KeyValue(self, key='# Channels:', value='0', row=3)
         self.samples_recorded = KeyValue(self, key='Samples Recorded:', value='0', row=4)
         self.samples_expected = KeyValue(self, key='Samples Expected:', value='0', row=5)
-        self.iterations = KeyValue(self, key='Iterations:', value='0', row=6)
+        self.time_shift = KeyValue(self, key='Time Shift:', value='0', row=6)
+        self.iterations = KeyValue(self, key='Iterations:', value='0', row=7)
 
     def update_info(self, info: InletInfo):
-        self.source_id.update_value(info.source_id)
-        self.sfreq.update_value(str(info.sfreq))
-        self.n_channels.update_value(str(info.n_channels))
-        self.time_shift.update_value(str(np.round(info.time_shift, 4)))
-        self.samples_recorded.update_value(str(info.samples_recorded))
-        self.samples_expected.update_value(str(info.samples_expected))
-        self.iterations.update_value(str(info.iterations))
+        safe_update_value(self.source_id, info.source_id)
+        safe_update_value(self.sfreq, info.sfreq)
+        safe_update_value(self.n_channels, info.n_channels)
+        safe_update_value(self.time_shift, info.time_shift)
+        safe_update_value(self.samples_recorded, info.samples_recorded)
+        safe_update_value(self.samples_expected, info.samples_expected)
+        safe_update_value(self.iterations, info.iterations)
 
 
 class Header(tk.CTkFrame):
@@ -116,7 +123,7 @@ class Footer(tk.CTkFrame):
 
 class Interface(tk.CTk):
 
-    def __init__(self, geometry: str = '600x650'):
+    def __init__(self, geometry: str = '600x700'):
         super().__init__()
         tk.set_appearance_mode("dark")
         self.title("EEG Recorder")
@@ -146,8 +153,11 @@ class Interface(tk.CTk):
         return self
 
     def set_recording_info(self, info: RecordingInfo) -> 'Interface':
-        self.body.signal_section.update_info(info.signal_info)
-        self.body.marker_section.update_info(info.marker_info)
+        if info is not None:
+            if info.signal_info is not None:
+                self.body.signal_section.update_info(info.signal_info)
+            if info.marker_info is not None:
+                self.body.marker_section.update_info(info.marker_info)
         self.footer.update_info(info)
         return self
 

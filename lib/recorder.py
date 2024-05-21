@@ -76,11 +76,13 @@ class Recorder:
 
     signal_values: ndarray = []
     signal_times: ndarray = []
+    signal_iterations: int = 0
     first_signal_lsl_seconds: float = 0
     first_signal_system_seconds: float = 0
 
     marker_values: ndarray = []
     marker_times: ndarray = []
+    marker_iterations: int = 0
     first_marker_lsl_seconds: float = 0
     first_marker_system_seconds: float = 0
 
@@ -191,9 +193,10 @@ class Recorder:
             self.logger.debug(f"Concatenating markers")
             self.marker_values = np.concatenate(marker_values).flatten() if len(marker_values) > 0 else np.array([])
             self.marker_times = np.concatenate(marker_times).flatten().astype(float) if len(marker_times) > 0 else np.array([])
+            self.marker_iterations = iteration
 
             duration: float = end_time - start_time
-            n_samples: int = len(self.signal_times)
+            n_samples: int = self.signal_values.shape[-1]
 
             self.logger.info(f"Marker Recording Stopped. Recorded: {n_samples}, Duration: {format_seconds(duration)}")
 
@@ -246,15 +249,15 @@ class Recorder:
                 time.sleep(0.01)
 
             end_time: float = recording_stopped_at if recording_stopped_at is not None else local_clock()
-            print("pp")
 
             self.logger.debug(f"Concatenating signals")
             self.signal_values = np.concatenate(signal_values, axis=1) if len(signal_values) > 0 else np.array([])
             self.signal_times = np.concatenate(signal_times).flatten().astype(float) if len(signal_times) > 0 else np.array([])
+            self.signal_iterations = iteration
 
             duration: float = end_time - start_time
             expected_samples: int = math.ceil(duration * sfreq)
-            n_samples: int = len(self.signal_times)
+            n_samples: int = self.signal_values.shape[-1]
             difference: int = expected_samples - n_samples
 
             if difference > 0:
@@ -339,14 +342,17 @@ class Recorder:
         self.logger.info(f"Saved raw data to {file_path}")
         return raw, file_path
 
-    def complete(self, file_path: str) -> Tuple[RawArray, RecordingInfo]:
-        self.stop()
-        raw, path = self.save_raw(file_path)
-        info = self.get_info()
-        info.file_path = path
-        self.disconnect()
-        self.logger.info("Recording Completed")
-        return raw, info
+    def complete(self, file_path: str) -> Tuple[Union[RawArray, None], RecordingInfo]:
+        if self.is_recording:
+            self.stop()
+            raw, path = self.save_raw(file_path)
+            info = self.get_info()
+            info.file_path = path
+            self.disconnect()
+            self.logger.info("Recording Completed")
+            return raw, info
+        else:
+            return None, RecordingInfo()
 
     def get_info(self) -> RecordingInfo:
         signal_info = InletInfo()
@@ -354,9 +360,9 @@ class Recorder:
             signal_info.source_id = self.signal_stream.source_id
             signal_info.sfreq = self.signal_stream.info['sfreq']
             signal_info.n_channels = len(self.signal_stream.ch_names)
-            signal_info.iterations = len(self.signal_values)
+            signal_info.iterations = self.signal_iterations
             signal_info.time_shift = self.signal_time_shift
-            signal_info.samples_recorded = len(self.signal_values)
+            signal_info.samples_recorded = self.signal_values.shape[-1]
             signal_info.samples_expected = math.ceil((self.recording_end_time - self.recording_start_time).seconds * signal_info.sfreq)
 
         marker_info = InletInfo()
@@ -364,7 +370,7 @@ class Recorder:
             marker_info.source_id = self.marker_stream.name
             marker_info.sfreq = self.marker_stream.sfreq
             marker_info.n_channels = self.marker_stream.n_channels
-            marker_info.iterations = len(self.marker_values)
+            marker_info.iterations = self.marker_iterations
             marker_info.time_shift = self.marker_time_shift
             marker_info.samples_recorded = len(self.marker_values)
             marker_info.samples_expected = math.ceil((self.recording_end_time - self.recording_start_time).seconds * marker_info.sfreq)
