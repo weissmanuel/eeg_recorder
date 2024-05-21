@@ -12,6 +12,7 @@ from typing import Tuple, Union, List, Callable
 from numpy import ndarray
 import time
 from lib.utils import format_seconds
+from omegaconf import DictConfig
 
 
 class InletInfo:
@@ -105,12 +106,18 @@ class Recorder:
     signal_time_shift: float | None
     marker_time_shift: float | None
 
-    def __init__(self, signal_id: str, marker_id: str | None, buffer_size_seconds: float):
+    def __init__(self,
+                 signal_id: str,
+                 marker_id: str | None,
+                 buffer_size_seconds: float,
+                 config: Union[dict | DictConfig]):
         logging.basicConfig(level=self.log_level)
         self.signal_id = signal_id
         self.marker_id = marker_id
 
         self.buffer_size_seconds = buffer_size_seconds
+
+        self.config = config
 
     @property
     def buffer_size(self) -> int:
