@@ -2,6 +2,36 @@
 
 source_id: 'UN-2023.05.69'
 n_channels: 17
-channel_names: ['Fz', 'C3', 'Cz', 'C4', 'Pz', 'PO7', 'OZ', 'PO8', 'acc_x', 'acc_y', 'acc_z', 'gyro_x', 'gyro_y', 'gyro_z', 'battery_level', 'counter', 'valid_indicator']
+channel_names: ['Fz', 'C3', 'Cz', 'C4', 'Pz', 'PO7', 'Oz', 'PO8', 'acc_x', 'acc_y', 'acc_z', 'gyro_x', 'gyro_y', 'gyro_z', 'battery_level', 'counter', 'valid_indicator']
 channel_types: ['eeg', 'eeg', 'eeg', 'eeg', 'eeg', 'eeg', 'eeg', 'eeg', 'misc', 'misc','misc', 'misc', 'misc', 'misc', 'misc', 'misc', 'misc']
 sfreq: 250
+montage: 'standard_1020'
+
+channel_names_mapping:
+  '0': 'Fz'
+  '1': 'C3'
+  '2': 'Cz'
+  '3': 'C4'
+  '4': 'Pz'
+  '5': 'PO7'
+  '6': 'Oz'
+  '7': 'PO8'
+  '8': 'acc_x'
+  '9': 'acc_y'
+  '10': 'acc_z'
+  '11': 'gyro_x'
+  '12': 'gyro_y'
+  '13': 'gyro_z'
+  '14': 'battery_level'
+  '15': 'counter'
+  '16': 'valid_indicator'
+
+channel_types_mapping:
+  Fz: 'eeg'
+  C3: 'eeg'
+  Cz: 'eeg'
+  C4: 'eeg'
+  Pz: 'eeg'
+  PO7: 'eeg'
+  Oz: 'eeg'
+  PO8: 'eeg'

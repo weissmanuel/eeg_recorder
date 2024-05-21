@@ -13,6 +13,7 @@ from numpy import ndarray
 import time
 from lib.utils import format_seconds
 from omegaconf import DictConfig
+from lib.utils import config_to_primitive
 
 
 class InletInfo:
@@ -329,6 +330,14 @@ class Recorder:
         assert len(self.signal_values) > 0, "No signal data recorded"
         self.logger.info("Generating MNE Raw Object")
         info = self.signal_stream.info.copy()
+        if 'channel_names_mapping' in self.config.headset:
+            info.rename_channels(config_to_primitive(self.config.headset.channel_names_mapping))
+        if 'channel_types_mapping' in self.config.headset:
+            info.set_channel_types(config_to_primitive(self.config.headset.channel_types_mapping))
+        if 'montage' in self.config.headset:
+            montage = mne.channels.make_standard_montage('standard_1020')
+            info.set_montage(montage)
+        self.signal_values /= 1e6
         raw = RawArray(self.signal_values, info)
         if self.marker_stream is not None and self.marker_values is not None and len(self.marker_values) > 0:
             marker_times = self.marker_times - self.first_signal_lsl_seconds
