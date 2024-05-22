@@ -11,7 +11,7 @@ def start(recorder: Recorder, interface: Interface):
 
 def stop(recorder: Recorder, interface: Interface):
     interface.set_status(text="Stop Recording...")
-    raw, info = recorder.complete("./data/recordings/test_raw.fif")
+    raw, info = recorder.complete()
     interface.set_status(text="Recording Completed")
     interface.set_recording_info(info)
 

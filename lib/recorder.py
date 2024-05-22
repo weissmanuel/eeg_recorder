@@ -362,16 +362,22 @@ class Recorder:
         self.logger.info("MNE Raw Object Generated")
         return raw
 
-    def save_raw(self, file_path: str) -> Tuple[RawArray, Path]:
+    def get_file_path(self):
+        if 'recording' in self.config:
+            subject = self.config.recording.subject
+            session = self.config.recording.session
+            return f"./data/recordings/recoding_sub_{subject}_sess_{session}.fif"
+
+    def save_raw(self, file_path: Union[str, None] = None) -> Tuple[RawArray, Path]:
         raw = self.get_raw()
         self.logger.info(f"Saving raw data to {file_path}")
-        file_path = Path(file_path)
+        file_path = Path(file_path if file_path is not None else self.get_file_path())
         file_path.parent.mkdir(parents=True, exist_ok=True)
         raw.save(file_path, overwrite=True)
         self.logger.info(f"Saved raw data to {file_path}")
         return raw, file_path
 
-    def complete(self, file_path: str) -> Tuple[Union[RawArray, None], RecordingInfo]:
+    def complete(self, file_path: Union[str, None] = None) -> Tuple[Union[RawArray, None], RecordingInfo]:
         if self.is_recording:
             self.stop()
             raw, path = self.save_raw(file_path)
