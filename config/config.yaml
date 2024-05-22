@@ -9,3 +9,8 @@ signal_id: ${headset.source_id}
 marker_id: null
 
 buffer_size_seconds: 60
+
+preprocessors:
+  - name: 'eeg_scaler'
+    scale: 1e-6
+    channel_types: ['eeg']

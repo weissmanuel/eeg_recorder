@@ -8,13 +8,14 @@ from mne.io import RawArray
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import logging
-from typing import Tuple, Union, List, Callable
+from typing import Tuple, Union, List
 from numpy import ndarray
 import time
 from lib.utils import format_seconds
 from omegaconf import DictConfig
 from lib.utils import config_to_primitive
-
+from mne import Info
+from lib.preprocess import get_preprocessors, Preprocessor
 
 class InletInfo:
     source_id: str | None
@@ -325,10 +326,7 @@ class Recorder:
             self.summary()
             self.logger.info("Recording Stopped")
 
-    def get_raw(self):
-        assert not self.is_recording, "You cannot generate an MNE Raw object while recording"
-        assert len(self.signal_values) > 0, "No signal data recorded"
-        self.logger.info("Generating MNE Raw Object")
+    def create_mne_info(self) -> Info:
         info = self.signal_stream.info.copy()
         if 'channel_names_mapping' in self.config.headset:
             info.rename_channels(config_to_primitive(self.config.headset.channel_names_mapping))
@@ -337,13 +335,28 @@ class Recorder:
         if 'montage' in self.config.headset:
             montage = mne.channels.make_standard_montage('standard_1020')
             info.set_montage(montage)
-        self.signal_values /= 1e6
+        return info
+
+    def preprocess(self, info: Info):
+        preprocessors: List[Preprocessor] = get_preprocessors(self.config.preprocessors)
+        if preprocessors is not None and len(preprocessors) > 0:
+            for preprocessor in preprocessors:
+                self.signal_values = preprocessor(info, self.signal_values)
+
+    def get_raw(self):
+        assert not self.is_recording, "You cannot generate an MNE Raw object while recording"
+        assert len(self.signal_values) > 0, "No signal data recorded"
+        self.logger.info("Generating MNE Raw Object")
+        info = self.create_mne_info()
+        self.preprocess(info)
         raw = RawArray(self.signal_values, info)
+
         if self.marker_stream is not None and self.marker_values is not None and len(self.marker_values) > 0:
             marker_times = self.marker_times - self.first_signal_lsl_seconds
             raw.set_annotations(mne.Annotations(onset=marker_times, duration=[0.05] * len(marker_times),
                                                 description=self.marker_values.astype(str)))
         raw.set_meas_date(self.first_signal_datetime.replace(tzinfo=timezone.utc).timestamp())
+
         if len(raw.info['device_info']) == 0:
             raw.info['device_info'] = None
         self.logger.info("MNE Raw Object Generated")
