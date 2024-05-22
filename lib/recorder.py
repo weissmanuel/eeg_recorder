@@ -135,21 +135,27 @@ class Recorder:
     def connect(self):
         self.logger.debug("Connecting to LSL Streams")
         if self.signal_id is not None:
-            self.signal_stream = StreamLSL(bufsize=self.buffer_size_seconds, source_id=self.signal_id)
-            self.signal_stream.connect(processing_flags=['clocksync', 'dejitter', 'monotize'])
-            self.logger.debug(f"Signal Stream Connected with id: {self.signal_id}")
+            try:
+                self.signal_stream = StreamLSL(bufsize=self.buffer_size_seconds, source_id=self.signal_id)
+                self.signal_stream.connect(processing_flags=['clocksync', 'dejitter', 'monotize'])
+                self.logger.info(f"Signal Stream Connected with id: {self.signal_id}")
+            except Exception as e:
+                self.logger.warning(f"Failed to connect to Signal Streams: {e}")
         else:
             self.signal_recording_completed = True
 
         if self.marker_id is not None:
-            streams = resolve_streams(source_id=self.marker_id)
-            if len(streams) == 1:
-                self.marker_stream = StreamInlet(streams[0])
-                self.marker_stream.open_stream()
-                self.logger.debug(f"Marker Stream Connected with id: {self.marker_id}")
-            else:
-                self.logger.info("No marker Stream Connected -> Ignoring Marker Recording")
-                self.marker_recording_completed = True
+            try:
+                streams = resolve_streams(source_id=self.marker_id)
+                if len(streams) == 1:
+                    self.marker_stream = StreamInlet(streams[0])
+                    self.marker_stream.open_stream()
+                    self.logger.debug(f"Marker Stream Connected with id: {self.marker_id}")
+                else:
+                    self.logger.info("No marker Stream Connected -> Ignoring Marker Recording")
+                    self.marker_recording_completed = True
+            except Exception as e:
+                self.logger.warning(f"Failed to connect to Marker Streams: {e}")
         else:
             self.marker_recording_completed = True
 

@@ -5,8 +5,8 @@ defaults:
   - _self_
 
 signal_id: ${headset.source_id}
-#marker_id: 'rsvp_markers'
-marker_id: null
+marker_id: 'rsvp_markers'
+#marker_id: null
 
 recording:
   subject: 1
