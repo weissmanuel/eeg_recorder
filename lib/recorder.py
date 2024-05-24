@@ -75,7 +75,7 @@ class Recorder:
     safety_offset_seconds: float = 1.0
 
     signal_stream: Union[StreamLSL, None] = None
-    marker_stream: Union[StreamInlet, None] = None
+    marker_stream: Union[StreamLSL, None] = None
 
     signal_values: ndarray = []
     signal_times: ndarray = []
@@ -141,21 +141,18 @@ class Recorder:
                 self.logger.info(f"Signal Stream Connected with id: {self.signal_id}")
             except Exception as e:
                 self.logger.warning(f"Failed to connect to Signal Streams: {e}")
+                self.signal_recording_completed = True
         else:
             self.signal_recording_completed = True
 
         if self.marker_id is not None:
             try:
-                streams = resolve_streams(source_id=self.marker_id)
-                if len(streams) == 1:
-                    self.marker_stream = StreamInlet(streams[0])
-                    self.marker_stream.open_stream()
-                    self.logger.debug(f"Marker Stream Connected with id: {self.marker_id}")
-                else:
-                    self.logger.info("No marker Stream Connected -> Ignoring Marker Recording")
-                    self.marker_recording_completed = True
+                self.marker_stream = StreamLSL(bufsize=self.buffer_size_seconds, source_id=self.signal_id)
+                self.marker_stream.connect(processing_flags=['clocksync', 'dejitter', 'monotize'])
+                self.logger.debug(f"Marker Stream Connected with id: {self.marker_id}")
             except Exception as e:
                 self.logger.warning(f"Failed to connect to Marker Streams: {e}")
+                self.marker_recording_completed = True
         else:
             self.marker_recording_completed = True
 
@@ -168,12 +165,14 @@ class Recorder:
 
     def _handle_marker_recording(self):
         if self.marker_stream is not None:
+
+            self.logger.debug("Start Marker Recording")
             iteration = 0
             marker_values = []
             marker_times = []
 
             start_time: float = local_clock()
-            # sfreq: float = self.signal_stream.info['sfreq']
+            sfreq: float = self.signal_stream.info['sfreq']
             self.marker_time_shift = 0
 
             recording_stopped_at: Union[float, None] = None
@@ -182,25 +181,28 @@ class Recorder:
                 if not self.is_recording and recording_stopped_at is None:
                     recording_stopped_at = local_clock()
 
-                markers, timestamps = self.marker_stream.pull_chunk()
+                window_size = self.signal_stream.n_new_samples / sfreq
 
-                if markers is not None and len(markers) > 0:
-                    marker_values.append(markers.copy())
-                    marker_times.append(timestamps.copy())
+                if window_size > 0:
+                    (markers, timestamps) = self.marker_stream.get_data(winsize=window_size)
+    
+                    if markers is not None and len(markers) > 0:
+                        marker_values.append(markers.copy())
+                        marker_times.append(timestamps.copy())
 
-                    time_last_received_sample: float = timestamps[-1]
-                    current_time: float = recording_stopped_at if recording_stopped_at is not None else local_clock()
-                    self.marker_time_shift: float = current_time - time_last_received_sample
+                        time_last_received_sample: float = timestamps[-1]
+                        current_time: float = recording_stopped_at if recording_stopped_at is not None else local_clock()
+                        self.marker_time_shift: float = current_time - time_last_received_sample
 
-                    self.logger.debug(f"Markers Recorded: {len(timestamps)} Markers")
-                    self.logger.debug(f"Time Shift {self.marker_time_shift}")
+                        self.logger.debug(f"Markers Recorded: {len(timestamps)} Markers")
+                        self.logger.debug(f"Time Shift {self.marker_time_shift}")
 
-                    if iteration == 0:
-                        self.first_marker_lsl_seconds = timestamps[0].copy()
-                        self.first_marker_system_seconds = local_clock()
-                        self.first_marker_datetime = datetime.utcnow()
-                        self.logger.debug(f"First Marker Time: {self.first_marker_datetime}")
-                    iteration += 1
+                        if iteration == 0:
+                            self.first_marker_lsl_seconds = timestamps[0].copy()
+                            self.first_marker_system_seconds = local_clock()
+                            self.first_marker_datetime = datetime.utcnow()
+                            self.logger.debug(f"First Marker Time: {self.first_marker_datetime}")
+                        iteration += 1
                 time.sleep(0.01)
 
             end_time: float = recording_stopped_at if recording_stopped_at is not None else local_clock()
@@ -226,7 +228,7 @@ class Recorder:
     def _handle_signal_recording(self):
         if self.signal_stream is not None and self.signal_stream.connected:
 
-            self.logger.debug("Starting Signal Recording")
+            self.logger.debug("Start Signal Recording")
             iteration: int = 0
             signal_values: List[ndarray] = []
             signal_times: List[ndarray] = []
@@ -241,7 +243,7 @@ class Recorder:
                 if not self.is_recording and recording_stopped_at is None:
                     recording_stopped_at = local_clock()
 
-                window_size = self.signal_stream.n_new_samples / self.signal_stream.info['sfreq']
+                window_size = self.signal_stream.n_new_samples / sfreq
 
                 if window_size > 0:
                     (values, times) = self.signal_stream.get_data(winsize=window_size)
