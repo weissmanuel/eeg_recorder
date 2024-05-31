@@ -11,6 +11,7 @@ marker_id: 'rsvp_markers'
 recording:
   subject: 1
   session: 0
+  block: 0
 
 buffer_size_seconds: 60
 

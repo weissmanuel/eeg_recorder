@@ -137,22 +137,24 @@ class Recorder:
         if self.signal_id is not None:
             try:
                 self.signal_stream = StreamLSL(bufsize=self.buffer_size_seconds, source_id=self.signal_id)
-                self.signal_stream.connect(processing_flags=['clocksync', 'dejitter', 'monotize'])
+                self.signal_stream.connect(processing_flags=['clocksync', 'dejitter'])
                 self.logger.info(f"Signal Stream Connected with id: {self.signal_id}")
             except Exception as e:
                 self.logger.warning(f"Failed to connect to Signal Streams: {e}")
                 self.signal_recording_completed = True
+                self.signal_stream = None
         else:
             self.signal_recording_completed = True
 
         if self.marker_id is not None:
             try:
-                self.marker_stream = StreamLSL(bufsize=self.buffer_size_seconds, source_id=self.signal_id)
-                self.marker_stream.connect(processing_flags=['clocksync', 'dejitter', 'monotize'])
+                self.marker_stream = StreamLSL(bufsize=self.buffer_size_seconds, source_id=self.marker_id)
+                self.marker_stream.connect(processing_flags=['clocksync', 'dejitter'])
                 self.logger.debug(f"Marker Stream Connected with id: {self.marker_id}")
             except Exception as e:
                 self.logger.warning(f"Failed to connect to Marker Streams: {e}")
                 self.marker_recording_completed = True
+                self.marker_stream = None
         else:
             self.marker_recording_completed = True
 
@@ -172,7 +174,7 @@ class Recorder:
             marker_times = []
 
             start_time: float = local_clock()
-            sfreq: float = self.signal_stream.info['sfreq']
+            sfreq: float = self.marker_stream.info['sfreq']
             self.marker_time_shift = 0
 
             recording_stopped_at: Union[float, None] = None
@@ -181,7 +183,7 @@ class Recorder:
                 if not self.is_recording and recording_stopped_at is None:
                     recording_stopped_at = local_clock()
 
-                window_size = self.signal_stream.n_new_samples / sfreq
+                window_size = self.marker_stream.n_new_samples
 
                 if window_size > 0:
                     (markers, timestamps) = self.marker_stream.get_data(winsize=window_size)
@@ -208,7 +210,7 @@ class Recorder:
             end_time: float = recording_stopped_at if recording_stopped_at is not None else local_clock()
 
             self.logger.debug(f"Concatenating markers")
-            self.marker_values = np.concatenate(marker_values).flatten() if len(marker_values) > 0 else np.array([])
+            self.marker_values = np.concatenate(marker_values, axis=1).flatten() if len(marker_values) > 0 else np.array([])
             self.marker_times = np.concatenate(marker_times).flatten().astype(float) if len(marker_times) > 0 else np.array([])
             self.marker_iterations = iteration
 
@@ -374,7 +376,8 @@ class Recorder:
         if 'recording' in self.config:
             subject = self.config.recording.subject
             session = self.config.recording.session
-            return f"./data/recordings/recoding_sub_{subject}_sess_{session}.fif"
+            block = self.config.recording.block
+            return f"./data/recordings/recoding_subject_{subject}_session_{session}_block_{block}.fif"
 
     def save_raw(self, file_path: Union[str, None] = None) -> Tuple[RawArray, Path]:
         raw = self.get_raw()
@@ -411,7 +414,7 @@ class Recorder:
         marker_info = InletInfo()
         if self.marker_stream is not None:
             marker_info.source_id = self.marker_stream.name
-            marker_info.sfreq = self.marker_stream.sfreq
+            marker_info.sfreq = self.signal_stream.info['sfreq']
             marker_info.n_channels = self.marker_stream.n_channels
             marker_info.iterations = self.marker_iterations
             marker_info.time_shift = self.marker_time_shift
