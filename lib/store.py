@@ -1,9 +1,10 @@
 from multiprocessing import Manager
-from typing import List, Tuple
+from typing import List, Tuple, Union
 from datetime import datetime
 from enum import Enum
 import numpy as np
 from numpy import ndarray
+from mne import Info
 
 
 class StreamType(Enum):
@@ -58,6 +59,9 @@ class StreamStore:
         self._start_time_seconds = manager.Value('d', 0.0)
         self._end_time_seconds = manager.Value('d', 0.0)
         self._sfreq = manager.Value('d', 0.0)
+
+        self._stream_info = manager.Value('O', None)
+        self._n_channels = manager.Value('i', 0)
 
     @property
     def raw_data_array(self) -> List[any]:
@@ -221,6 +225,22 @@ class StreamStore:
     @sfreq.setter
     def sfreq(self, value: float) -> None:
         self._sfreq.value = value
+
+    @property
+    def stream_info(self) -> Union[Info, None]:
+        return self._stream_info.value or None
+
+    @stream_info.setter
+    def stream_info(self, value: Info) -> None:
+        self._stream_info.value = value
+
+    @property
+    def n_channels(self) -> int:
+        return self._n_channels.value
+
+    @n_channels.setter
+    def n_channels(self, value: int) -> None:
+        self._n_channels.value = value
 
     @property
     def duration(self) -> float:

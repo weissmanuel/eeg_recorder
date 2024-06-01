@@ -71,6 +71,10 @@ class RecordingWorker(Worker):
     def reset(self):
         self.stream_store.reset()
 
+    def retrieve_stream_info(self, stream: StreamLSL):
+        self.stream_store.stream_info = stream.info
+        self.stream_store.n_channels = len(stream.ch_names)
+
     def add_data(self, data: any, times: any, recording_stopped_at: Union[float, None] = None):
         self.stream_store.append_data(data.copy())
         self.stream_store.append_times(times.copy())
@@ -109,6 +113,7 @@ class RecordingWorker(Worker):
         if stream is not None and stream.connected:
 
             self.logger.info(f"Start Recording of Stream: {self.stream_store.source_id}")
+            self.retrieve_stream_info(stream)
             values: List[ndarray] = []
             times: List[ndarray] = []
 
