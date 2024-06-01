@@ -11,6 +11,15 @@ from typing import Union, List, Tuple
 from pathlib import Path
 import logging
 from datetime import timezone
+from enum import Enum
+
+class PersistingMode(Enum):
+    REPLACE = "REPLACE"
+    CONTINUOUS = "CONTINUOUS"
+
+    @staticmethod
+    def from_string(mode: str) -> 'PersistingMode':
+        return PersistingMode(mode.upper())
 
 
 class Persister(ABC):
@@ -26,6 +35,9 @@ class MneRawPersister(Persister):
 
     def __init__(self, config):
         self.config = config
+
+        if 'persisting_mode' in self.config:
+            self.persisting_mode = PersistingMode.from_string(self.config.persisting_mode)
 
     def get_file_path(self):
         if 'recording' in self.config:
@@ -79,6 +91,11 @@ class MneRawPersister(Persister):
         self.logger.info("MNE Raw Object Generated")
         return raw
 
+    def replace(self, raw: RawArray, file_path: Path):
+        raw.save(file_path, overwrite=False)
+        self.logger.info(f"Saved raw data to {file_path}")
+        return raw, file_path
+
     def save_raw(self,
                  signal_store: StreamStore,
                  marker_stores: List[StreamStore],
@@ -87,7 +104,7 @@ class MneRawPersister(Persister):
         self.logger.info(f"Saving raw data to {file_path}")
         file_path = Path(file_path if file_path is not None else self.get_file_path())
         file_path.parent.mkdir(parents=True, exist_ok=True)
-        raw.save(file_path, overwrite=True)
+        raw.save(file_path, overwrite=False)
         self.logger.info(f"Saved raw data to {file_path}")
         return raw, file_path
 
