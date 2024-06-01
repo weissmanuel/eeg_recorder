@@ -62,6 +62,15 @@ class StreamStore:
 
         self._stream_info = manager.Value('O', None)
         self._n_channels = manager.Value('i', 0)
+        self._has_stream = manager.Value('b', False)
+
+    @property
+    def has_stream(self) -> bool:
+        return self._has_stream.value
+
+    @has_stream.setter
+    def has_stream(self, value: bool) -> None:
+        self._has_stream.value = value
 
     @property
     def raw_data_array(self) -> List[any]:
@@ -74,6 +83,9 @@ class StreamStore:
         if self.stream_type.is_marker:
             data = data.flatten()
         return data
+
+    def has_data(self) -> bool:
+        return len(self._data) > 0
 
     def set_data(self, data: List[any]) -> None:
         self._data[:] = data

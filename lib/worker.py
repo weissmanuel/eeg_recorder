@@ -74,6 +74,7 @@ class RecordingWorker(Worker):
     def retrieve_stream_info(self, stream: StreamLSL):
         self.stream_store.stream_info = stream.info
         self.stream_store.n_channels = len(stream.ch_names)
+        self.stream_store.has_stream = True
 
     def add_data(self, data: any, times: any, recording_stopped_at: Union[float, None] = None):
         self.stream_store.append_data(data.copy())
@@ -158,5 +159,6 @@ class RecordingWorker(Worker):
 
             self.logger.debug(f"Finished Signal Recording for Stream: {self.source_id}")
             self.stream_store.recording_completed = True
+            disconnect(stream)
         else:
             self.stream_store.recording_completed = True

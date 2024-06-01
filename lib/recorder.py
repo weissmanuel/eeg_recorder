@@ -1,4 +1,3 @@
-from mne_lsl.stream import StreamLSL
 import mne
 from mne.io import RawArray
 from datetime import datetime, timedelta, timezone
@@ -112,16 +111,6 @@ class Recorder:
     def recording_completed(self) -> bool:
         return all([recorder.recording_completed for recorder in self.recorders])
 
-    def connect(self):
-        self.logger.info("Connecting to LSL Streams")
-        for recorder in self.recorders:
-            recorder.connect()
-
-    def disconnect(self):
-        self.logger.info("Disconnecting from LSL Streams")
-        for recorder in self.recorders:
-            recorder.disconnect()
-
     def reset_recording(self):
         self.logger.info("Resetting Recorder")
         self.recorder_store.reset()
@@ -150,27 +139,21 @@ class Recorder:
     def get_signal_recorder(self) -> RecordingWorker:
         return next((recorder for recorder in self.recorders if recorder.stream_type.is_signal), None)
 
-    def get_signal_stream(self) -> StreamLSL:
-        return self.get_signal_recorder().stream
-
     def get_marker_recorder(self) -> RecordingWorker:
         return next((recorder for recorder in self.recorders if recorder.stream_type.is_marker), None)
 
-    def get_marker_stream(self) -> StreamLSL:
-        return self.get_marker_recorder().stream
-
     def has_signal_stream(self) -> bool:
-        return self.get_signal_stream() is not None
+        return self.get_signal_recorder().stream_store.has_stream
 
     def has_marker_stream(self) -> bool:
-        return self.get_marker_stream() is not None
+        return self.get_marker_recorder().stream_store.has_stream
 
     def filter_recorders(self, stream_type: StreamType) -> List[RecordingWorker]:
         return [recorder for recorder in self.recorders if recorder.stream_type == stream_type]
 
     def create_mne_info(self) -> Info:
-        signal_stream = self.get_signal_stream()
-        info = signal_stream.info.copy()
+        signal_recorder = self.get_signal_recorder()
+        info = signal_recorder.stream_store.stream_info.copy()
         if 'channel_names_mapping' in self.config.headset:
             info.rename_channels(config_to_primitive(self.config.headset.channel_names_mapping))
         if 'channel_types_mapping' in self.config.headset:
@@ -240,7 +223,6 @@ class Recorder:
             raw, path = self.save_raw(file_path)
             info = self.get_info()
             info.file_path = path
-            self.disconnect()
             self.logger.info("Recording Completed")
             return raw, info
         else:
@@ -250,7 +232,7 @@ class Recorder:
         stream_store = recorder.stream_store
         return InletInfo(source_id=stream_store.source_id,
                          sfreq=stream_store.sfreq,
-                         n_channels=len(recorder.stream.ch_names),
+                         n_channels=stream_store.n_channels,
                          iterations=stream_store.iterations,
                          time_shift=stream_store.time_shift,
                          samples_recorded=stream_store.n_samples,
@@ -273,11 +255,11 @@ class Recorder:
                              file_path=None)
 
     def stream_summary(self, recorder: RecordingWorker):
-        if recorder.stream is not None:
+        if recorder.stream_store.has_stream is not None:
             stream_store = recorder.stream_store
             print(f"Steam: {stream_store.source_id}")
             print(f"Stream Type: {stream_store.stream_type}")
-            print(f"Number of Channels: {len(recorder.stream.ch_names)}")
+            print(f"Number of Channels: {stream_store.n_channels}")
             print(f"Sampling Frequency: {stream_store.sfreq}")
             print(f"First Sample Time: {stream_store.first_sample_datetime}")
             print(f"Last Sample Time: {stream_store.last_sample_datetime}")
