@@ -102,7 +102,11 @@ class MneRawPersister(Persister):
         exists = file_path.exists()
         if exists:
             existing_raw = mne.io.read_raw_fif(file_path)
-            raw = raw.copy().append(existing_raw)
+            data = existing_raw.get_data()
+            info = existing_raw.info
+            existing_raw_array = RawArray(data, info)
+            existing_raw_array.append(raw)
+            existing_raw_array.save(file_path, overwrite=True)
         else:
             self.save_replace(raw, file_path)
         return raw, file_path
