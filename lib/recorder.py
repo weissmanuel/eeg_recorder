@@ -223,6 +223,8 @@ class Recorder:
             info = self.get_info()
             info.file_path = path
             self.logger.info("Recording Completed")
+            for recorder in self.recorders:
+                recorder.stop()
             return raw, info
         else:
             return None, RecordingInfo()

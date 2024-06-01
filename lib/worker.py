@@ -44,7 +44,7 @@ class RecordingWorker(Worker):
 
         self.buffer_size_seconds = buffer_size_seconds
 
-        self.process = Process(target=self.work)
+        self.process = self.get_new_process()
 
     def buffer_size(self, stream: StreamLSL) -> int:
         if stream is not None:
@@ -64,12 +64,19 @@ class RecordingWorker(Worker):
     def recording_completed(self) -> bool:
         return self.stream_store.recording_completed
 
+    def get_new_process(self):
+        return Process(target=self.work)
+
     def start(self):
         self.process.start()
 
     def stop(self):
-        self.process.terminate()
-        self.process.join()
+        try:
+            self.process.terminate()
+            self.process.join()
+        except Exception as e:
+            self.logger.error(f"Error while stopping worker: {e}")
+        self.process = self.get_new_process()
 
     def reset(self):
         self.stream_store.reset()
