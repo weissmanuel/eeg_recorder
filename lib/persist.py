@@ -32,12 +32,15 @@ class Persister(ABC):
 
 class MneRawPersister(Persister):
     config: DictConfig
+    persisting_mode: PersistingMode
 
     def __init__(self, config):
         self.config = config
 
         if 'persisting_mode' in self.config:
             self.persisting_mode = PersistingMode.from_string(self.config.persisting_mode)
+        else:
+            self.persisting_mode = PersistingMode.REPLACE
 
     def get_file_path(self):
         if 'recording' in self.config:
@@ -91,10 +94,24 @@ class MneRawPersister(Persister):
         self.logger.info("MNE Raw Object Generated")
         return raw
 
-    def replace(self, raw: RawArray, file_path: Path):
-        raw.save(file_path, overwrite=False)
-        self.logger.info(f"Saved raw data to {file_path}")
+    def save_replace(self, raw: RawArray, file_path: Path):
+        raw.save(file_path, overwrite=True)
         return raw, file_path
+
+    def save_append(self, raw: RawArray, file_path: Path):
+        exists = file_path.exists()
+        if exists:
+            existing_raw = mne.io.read_raw_fif(file_path)
+            raw = raw.copy().append(existing_raw)
+        else:
+            self.save_replace(raw, file_path)
+        return raw, file_path
+
+    def save_by_mode(self, raw: RawArray, file_path: Path):
+        if self.persisting_mode == PersistingMode.REPLACE:
+            return self.save_replace(raw, file_path)
+        elif self.persisting_mode == PersistingMode.CONTINUOUS:
+            return self.save_append(raw, file_path)
 
     def save_raw(self,
                  signal_store: StreamStore,
@@ -104,7 +121,8 @@ class MneRawPersister(Persister):
         self.logger.info(f"Saving raw data to {file_path}")
         file_path = Path(file_path if file_path is not None else self.get_file_path())
         file_path.parent.mkdir(parents=True, exist_ok=True)
-        raw.save(file_path, overwrite=False)
+        raw, file_path = self.save_by_mode(raw, file_path)
+        self.logger.info(f"Saved raw data to {file_path}")
         self.logger.info(f"Saved raw data to {file_path}")
         return raw, file_path
 
