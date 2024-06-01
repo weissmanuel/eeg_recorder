@@ -75,6 +75,9 @@ class RecordingWorker(Worker):
         self.stream_store.stream_info = stream.info
         self.stream_store.n_channels = len(stream.ch_names)
         self.stream_store.has_stream = True
+        self.stream_store.sfreq = stream.info['sfreq']
+        self.stream_store.time_shift = 0.0
+        self.stream_store.start_time_seconds = local_clock()
 
     def add_data(self, data: any, times: any, recording_stopped_at: Union[float, None] = None):
         self.stream_store.append_data(data.copy())
@@ -118,11 +121,6 @@ class RecordingWorker(Worker):
             values: List[ndarray] = []
             times: List[ndarray] = []
 
-            sfreq: float = stream.info['sfreq']
-            self.stream_store.sfreq = sfreq
-            self.stream_store.time_shift = 0.0
-            self.stream_store.start_time_seconds = local_clock()
-
             recording_stopped_at: Union[float, None] = None
 
             while (self.recorder_store.is_recording
@@ -131,8 +129,8 @@ class RecordingWorker(Worker):
                 if not self.recorder_store.is_recording and recording_stopped_at is None:
                     recording_stopped_at = local_clock()
 
-                if sfreq is not None and sfreq > 0:
-                    window_size = stream.n_new_samples / sfreq
+                if self.stream_store.sfreq is not None and self.stream_store.sfreq > 0:
+                    window_size = stream.n_new_samples / self.stream_store.sfreq
                 else:
                     window_size = stream.n_new_samples
 
