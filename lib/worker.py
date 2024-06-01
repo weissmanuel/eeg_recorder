@@ -99,7 +99,7 @@ class RecordingWorker(Worker):
     def log_first_iteration(self, times: List[any]):
         self.stream_store.first_sample_lsl_seconds = times[0].copy()
         self.stream_store.first_sample_system_seconds = local_clock()
-        self.stream_store._first_sample_datetime = datetime.utcnow()
+        self.stream_store.first_sample_datetime = datetime.utcnow()
         self.logger.debug(f"First Signal Time of {self.source_id}: {self.stream_store.first_sample_datetime}")
 
     def log_recording_completed(self):
@@ -122,7 +122,7 @@ class RecordingWorker(Worker):
     def work(self):
         if self.stream is not None and self.stream.connected:
 
-            self.logger.debug(f"Start Recording of Stream: {self.stream_store.source_id}")
+            self.logger.info(f"Start Recording of Stream: {self.stream_store.source_id}")
             values: List[ndarray] = []
             times: List[ndarray] = []
 
@@ -142,7 +142,7 @@ class RecordingWorker(Worker):
                 if sfreq is not None and sfreq > 0:
                     window_size = self.stream.n_new_samples / sfreq
                 else:
-                    window_size = self.buffer_size_seconds
+                    window_size = self.stream.n_new_samples
 
                 if window_size > 0:
                     (values, times) = self.stream.get_data(winsize=window_size)
