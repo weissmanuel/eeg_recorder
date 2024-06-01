@@ -1,8 +1,3 @@
-from mne_lsl.lsl import local_clock, StreamInlet, resolve_streams
-from mne_lsl.stream import StreamLSL
-from threading import Thread
-import math
-import numpy as np
 import mne
 from mne.io import RawArray
 from datetime import datetime, timedelta, timezone
@@ -16,6 +11,11 @@ from omegaconf import DictConfig
 from lib.utils import config_to_primitive
 from mne import Info
 from lib.preprocess import get_preprocessors, Preprocessor
+from multiprocessing import Manager
+from lib.worker import RecordingWorker
+from lib.store import StreamType, StreamStore, RecorderStore
+from lib.persist import MneRawPersister, Persister
+
 
 class InletInfo:
     source_id: str | None
@@ -69,275 +69,94 @@ class RecordingInfo:
 
 
 class Recorder:
-    signal_id: Union[str, None]
-    marker_id: Union[str, None]
+    sources: List[Tuple[str, str]] = []
+    recorders: List[RecordingWorker] = []
+
+    recorder_store: RecorderStore
 
     safety_offset_seconds: float = 1.0
-
-    signal_stream: Union[StreamLSL, None] = None
-    marker_stream: Union[StreamLSL, None] = None
-
-    signal_values: ndarray = []
-    signal_times: ndarray = []
-    signal_iterations: int = 0
-    first_signal_lsl_seconds: float = 0
-    first_signal_system_seconds: float = 0
-
-    marker_values: ndarray = []
-    marker_times: ndarray = []
-    marker_iterations: int = 0
-    first_marker_lsl_seconds: float = 0
-    first_marker_system_seconds: float = 0
-
-    is_recording: bool = False
-    _signal_thread: Thread
-    _marker_thread: Thread
-    signal_recording_completed: bool = False
-    marker_recording_completed: bool = False
 
     log_level: int = logging.INFO
     logger = logging.getLogger(__name__)
 
-    recording_start_time: datetime | None = None
-    recording_end_time: datetime | None = None
-    first_signal_datetime: datetime | None = None
-    last_signal_datetime: datetime | None = None
-    first_marker_datetime: datetime | None = None
-    last_marker_datetime: datetime | None = None
-
-    signal_time_shift: float | None
-    marker_time_shift: float | None
+    manager: Manager
+    persister: MneRawPersister
 
     def __init__(self,
-                 signal_id: str,
-                 marker_id: str | None,
-                 buffer_size_seconds: float,
-                 config: Union[dict | DictConfig]):
+                 config: Union[dict | DictConfig],
+                 sources: List[Union[Tuple[str, str], List[str]]] | None = None,
+                 buffer_size_seconds: float = 60.0,
+                 ):
         logging.basicConfig(level=self.log_level)
-        self.signal_id = signal_id
-        self.marker_id = marker_id
-
-        self.buffer_size_seconds = buffer_size_seconds
-
         self.config = config
 
+        self.sources = sources if sources is not None else []
+        self.buffer_size_seconds = buffer_size_seconds
+
+        self.manager = Manager()
+        self.persister = MneRawPersister(config=config)
+        self.initialise_recorders()
+
+    def initialise_recorders(self):
+        self.recorder_store = RecorderStore(self.manager)
+        for source in self.sources:
+            source_id, stream_type = source
+            stream_type = StreamType.from_str(stream_type)
+            stream_store = StreamStore(self.manager, source_id, stream_type)
+            recorder = RecordingWorker(self.recorder_store, stream_store, self.buffer_size_seconds)
+            self.recorders.append(recorder)
+
     @property
-    def buffer_size(self) -> int:
-        if self.signal_stream is not None:
-            sfreq = self.signal_stream.info['sfreq']
-            return math.ceil(self.buffer_size_seconds * sfreq)
-        return 0
+    def is_recording(self) -> bool:
+        return self.recorder_store.is_recording
 
     @property
     def recording_completed(self) -> bool:
-        return self.signal_recording_completed and self.marker_recording_completed
-
-    def connect(self):
-        self.logger.debug("Connecting to LSL Streams")
-        if self.signal_id is not None:
-            try:
-                self.signal_stream = StreamLSL(bufsize=self.buffer_size_seconds, source_id=self.signal_id)
-                self.signal_stream.connect(processing_flags=['clocksync', 'dejitter'])
-                self.logger.info(f"Signal Stream Connected with id: {self.signal_id}")
-            except Exception as e:
-                self.logger.warning(f"Failed to connect to Signal Streams: {e}")
-                self.signal_recording_completed = True
-                self.signal_stream = None
-        else:
-            self.signal_recording_completed = True
-
-        if self.marker_id is not None:
-            try:
-                self.marker_stream = StreamLSL(bufsize=self.buffer_size_seconds, source_id=self.marker_id)
-                self.marker_stream.connect(processing_flags=['clocksync', 'dejitter'])
-                self.logger.debug(f"Marker Stream Connected with id: {self.marker_id}")
-            except Exception as e:
-                self.logger.warning(f"Failed to connect to Marker Streams: {e}")
-                self.marker_recording_completed = True
-                self.marker_stream = None
-        else:
-            self.marker_recording_completed = True
-
-    def disconnect(self):
-        self.logger.debug("Disconnecting from LSL Streams")
-        if self.signal_stream is not None:
-            self.signal_stream.disconnect()
-        if self.marker_stream is not None:
-            self.marker_stream.close_stream()
-
-    def _handle_marker_recording(self):
-        if self.marker_stream is not None:
-
-            self.logger.debug("Start Marker Recording")
-            iteration = 0
-            marker_values = []
-            marker_times = []
-
-            start_time: float = local_clock()
-            sfreq: float = self.marker_stream.info['sfreq']
-            self.marker_time_shift = 0
-
-            recording_stopped_at: Union[float, None] = None
-
-            while self.is_recording:
-                if not self.is_recording and recording_stopped_at is None:
-                    recording_stopped_at = local_clock()
-
-                window_size = self.marker_stream.n_new_samples
-
-                if window_size > 0:
-                    (markers, timestamps) = self.marker_stream.get_data(winsize=window_size)
-    
-                    if markers is not None and len(markers) > 0:
-                        marker_values.append(markers.copy())
-                        marker_times.append(timestamps.copy())
-
-                        time_last_received_sample: float = timestamps[-1]
-                        current_time: float = recording_stopped_at if recording_stopped_at is not None else local_clock()
-                        self.marker_time_shift: float = current_time - time_last_received_sample
-
-                        self.logger.debug(f"Markers Recorded: {len(timestamps)} Markers")
-                        self.logger.debug(f"Time Shift {self.marker_time_shift}")
-
-                        if iteration == 0:
-                            self.first_marker_lsl_seconds = timestamps[0].copy()
-                            self.first_marker_system_seconds = local_clock()
-                            self.first_marker_datetime = datetime.utcnow()
-                            self.logger.debug(f"First Marker Time: {self.first_marker_datetime}")
-                        iteration += 1
-                time.sleep(0.01)
-
-            end_time: float = recording_stopped_at if recording_stopped_at is not None else local_clock()
-
-            self.logger.debug(f"Concatenating markers")
-            self.marker_values = np.concatenate(marker_values, axis=1).flatten() if len(marker_values) > 0 else np.array([])
-            self.marker_times = np.concatenate(marker_times).flatten().astype(float) if len(marker_times) > 0 else np.array([])
-            self.marker_iterations = iteration
-
-            duration: float = end_time - start_time
-            n_samples: int = self.signal_values.shape[-1]
-
-            self.logger.info(f"Marker Recording Stopped. Recorded: {n_samples}, Duration: {format_seconds(duration)}")
-
-            if len(self.marker_times) > 1:
-                delta_seconds = self.marker_times[-1] - self.marker_times[0]
-                self.last_marker_datetime = self.first_marker_datetime + timedelta(seconds=delta_seconds)
-            else:
-                self.last_marker_datetime = self.first_marker_datetime
-            self.logger.debug("Finished Marker Recording")
-            self.marker_recording_completed = True
-
-    def _handle_signal_recording(self):
-        if self.signal_stream is not None and self.signal_stream.connected:
-
-            self.logger.debug("Start Signal Recording")
-            iteration: int = 0
-            signal_values: List[ndarray] = []
-            signal_times: List[ndarray] = []
-
-            start_time: float = local_clock()
-            sfreq: float = self.signal_stream.info['sfreq']
-            self.signal_time_shift: float = 0
-
-            recording_stopped_at: Union[float, None] = None
-
-            while self.is_recording or self.signal_time_shift > -self.safety_offset_seconds:
-                if not self.is_recording and recording_stopped_at is None:
-                    recording_stopped_at = local_clock()
-
-                window_size = self.signal_stream.n_new_samples / sfreq
-
-                if window_size > 0:
-                    (values, times) = self.signal_stream.get_data(winsize=window_size)
-
-                    if values is not None and len(values) > 0:
-                        signal_values.append(values.copy())
-                        signal_times.append(times.copy())
-
-                        time_last_received_sample: float = times[-1]
-                        current_time: float = recording_stopped_at if recording_stopped_at is not None else local_clock()
-                        self.signal_time_shift = current_time - time_last_received_sample
-
-                        if iteration == 0:
-                            self.first_signal_lsl_seconds = times[0].copy()
-                            self.first_signal_system_seconds = local_clock()
-                            self.first_signal_datetime = datetime.utcnow()
-                            self.logger.debug(f"First Signal Time: {self.first_signal_datetime}")
-
-                        iteration += 1
-                time.sleep(0.01)
-
-            end_time: float = recording_stopped_at if recording_stopped_at is not None else local_clock()
-
-            self.logger.debug(f"Concatenating signals")
-            self.signal_values = np.concatenate(signal_values, axis=1) if len(signal_values) > 0 else np.array([])
-            self.signal_times = np.concatenate(signal_times).flatten().astype(float) if len(signal_times) > 0 else np.array([])
-            self.signal_iterations = iteration
-
-            duration: float = end_time - start_time
-            expected_samples: int = math.ceil(duration * sfreq)
-            n_samples: int = self.signal_values.shape[-1]
-            difference: int = expected_samples - n_samples
-
-            if difference > 0:
-                self.logger.warning(f"Recorded less samples than expected: {difference} samples")
-
-            self.logger.info(f"Signal Recording Stopped. Recorded: {n_samples}, Expected: {expected_samples}, "
-                             f"Difference: {difference}, Duration: {format_seconds(duration)}")
-            # np.abs(np.abs(np.diff(np.abs(self.signal_times - start_time))) - 1 / sfreq)
-
-            if len(self.signal_values) > 1:
-                delta_seconds = self.signal_times[-1] - self.signal_times[0]
-                self.last_signal_datetime = self.first_signal_datetime + timedelta(seconds=delta_seconds)
-            else:
-                self.last_signal_datetime = self.first_signal_datetime
-            self.logger.debug("Finished Signal Recording")
-            self.signal_recording_completed = True
+        return all([recorder.recording_completed for recorder in self.recorders])
 
     def reset_recording(self):
-        self.signal_values = np.array([])
-        self.marker_values = np.array([])
-        self.marker_times = np.array([])
-        self.first_signal_lsl_seconds = 0
-        self.first_signal_system_seconds = 0
-        self.first_marker_lsl_seconds = 0
-        self.first_marker_system_seconds = 0
-        if self.signal_stream is not None:
-            self.signal_recording_completed = False
-        if self.marker_stream is not None:
-            self.marker_recording_completed = False
+        self.logger.info("Resetting Recorder")
+        self.recorder_store.reset()
+        for recorder in self.recorders:
+            recorder.reset()
 
     def start(self):
         if not self.is_recording:
-            self.logger.info("Connecting to LSL Streams")
-            self.connect()
-            self.logger.info("Starting Recording")
             self.reset_recording()
-            self.is_recording = True
-            self.recording_start_time = datetime.utcnow()
+            self.logger.info("Starting Recording")
+            self.recorder_store.start()
 
-            if self.signal_stream is not None:
-                self._signal_thread = Thread(target=self._handle_signal_recording)
-                self._signal_thread.daemon = True
-                self._signal_thread.start()
-
-            if self.marker_stream is not None:
-                self._marker_thread = Thread(target=self._handle_marker_recording)
-                self._marker_thread.daemon = True
-                self._marker_thread.start()
+            for recorder in self.recorders:
+                recorder.start()
 
     def stop(self):
         if self.is_recording:
-            self.is_recording = False
-            self.recording_end_time = datetime.utcnow()
             self.logger.info("Stopping Recording")
+            self.recorder_store.stop()
+            self.recorder_store.recording_end_time = datetime.utcnow()
             while not self.recording_completed:
                 time.sleep(1)
             self.summary()
             self.logger.info("Recording Stopped")
 
+    def get_signal_recorder(self) -> RecordingWorker:
+        return next((recorder for recorder in self.recorders if recorder.stream_type.is_signal), None)
+
+    def get_marker_recorder(self) -> RecordingWorker:
+        return next((recorder for recorder in self.recorders if recorder.stream_type.is_marker), None)
+
+    def has_signal_stream(self) -> bool:
+        return self.get_signal_recorder().stream_store.has_stream
+
+    def has_marker_stream(self) -> bool:
+        return self.get_marker_recorder().stream_store.has_stream
+
+    def filter_recorders(self, stream_type: StreamType) -> List[RecordingWorker]:
+        return [recorder for recorder in self.recorders if recorder.stream_type == stream_type]
+
     def create_mne_info(self) -> Info:
-        info = self.signal_stream.info.copy()
+        signal_recorder = self.get_signal_recorder()
+        info = signal_recorder.stream_store.stream_info.copy()
         if 'channel_names_mapping' in self.config.headset:
             info.rename_channels(config_to_primitive(self.config.headset.channel_names_mapping))
         if 'channel_types_mapping' in self.config.headset:
@@ -347,25 +166,38 @@ class Recorder:
             info.set_montage(montage)
         return info
 
-    def preprocess(self, info: Info):
+    def preprocess(self, info: Info, data: ndarray) -> ndarray:
         preprocessors: List[Preprocessor] = get_preprocessors(self.config.preprocessors)
         if preprocessors is not None and len(preprocessors) > 0:
             for preprocessor in preprocessors:
-                self.signal_values = preprocessor(info, self.signal_values)
+                data = preprocessor(info, data)
+        return data
+
+    def add_annotations(self, raw: RawArray, marker_store: StreamStore) -> RawArray:
+        if marker_store is not None and marker_store.stream_type == StreamType.MARKER and marker_store.n_samples > 0:
+            signal_recorder: RecordingWorker = self.get_signal_recorder()
+            first_signal_lsl_seconds = signal_recorder.stream_store.first_sample_lsl_seconds
+            marker_values = marker_store.data
+            marker_times = marker_store.times - first_signal_lsl_seconds
+            raw.set_annotations(mne.Annotations(onset=marker_times, duration=[0.05] * len(marker_times),
+                                                description=marker_values.astype(str)))
+        return raw
 
     def get_raw(self):
         assert not self.is_recording, "You cannot generate an MNE Raw object while recording"
-        assert len(self.signal_values) > 0, "No signal data recorded"
+        signal_recorder: RecordingWorker = self.get_signal_recorder()
+        signal_store: StreamStore = signal_recorder.stream_store
+        signal = signal_store.data
+        assert signal_store.n_samples > 0, "No signal data recorded"
         self.logger.info("Generating MNE Raw Object")
         info = self.create_mne_info()
-        self.preprocess(info)
-        raw = RawArray(self.signal_values, info)
+        signal = self.preprocess(info, signal)
+        raw = RawArray(signal, info)
 
-        if self.marker_stream is not None and self.marker_values is not None and len(self.marker_values) > 0:
-            marker_times = self.marker_times - self.first_signal_lsl_seconds
-            raw.set_annotations(mne.Annotations(onset=marker_times, duration=[0.05] * len(marker_times),
-                                                description=self.marker_values.astype(str)))
-        raw.set_meas_date(self.first_signal_datetime.replace(tzinfo=timezone.utc).timestamp())
+        for recorder in self.filter_recorders(StreamType.MARKER):
+            raw = self.add_annotations(raw, recorder.stream_store)
+
+        raw.set_meas_date(signal_store.first_sample_datetime.replace(tzinfo=timezone.utc).timestamp())
 
         if len(raw.info['device_info']) == 0:
             raw.info['device_info'] = None
@@ -379,77 +211,70 @@ class Recorder:
             block = self.config.recording.block
             return f"./data/recordings/recoding_subject_{subject}_session_{session}_block_{block}.fif"
 
-    def save_raw(self, file_path: Union[str, None] = None) -> Tuple[RawArray, Path]:
-        raw = self.get_raw()
-        self.logger.info(f"Saving raw data to {file_path}")
-        file_path = Path(file_path if file_path is not None else self.get_file_path())
-        file_path.parent.mkdir(parents=True, exist_ok=True)
-        raw.save(file_path, overwrite=True)
-        self.logger.info(f"Saved raw data to {file_path}")
-        return raw, file_path
+    def save(self, file_path: Union[str, None] = None) -> Tuple[RawArray, Path]:
+        assert not self.is_recording, "You cannot generate an MNE Raw object while recording"
+        stores = [recorder.stream_store for recorder in self.recorders]
+        return self.persister.save(stores, file_path)
 
     def complete(self, file_path: Union[str, None] = None) -> Tuple[Union[RawArray, None], RecordingInfo]:
         if self.is_recording:
             self.stop()
-            raw, path = self.save_raw(file_path)
+            raw, path = self.save(file_path)
             info = self.get_info()
             info.file_path = path
-            self.disconnect()
             self.logger.info("Recording Completed")
+            for recorder in self.recorders:
+                recorder.stop()
             return raw, info
         else:
             return None, RecordingInfo()
 
+    def get_stream_info(self, recorder: RecordingWorker) -> InletInfo:
+        stream_store = recorder.stream_store
+        return InletInfo(source_id=stream_store.source_id,
+                         sfreq=stream_store.sfreq,
+                         n_channels=stream_store.n_channels,
+                         iterations=stream_store.iterations,
+                         time_shift=stream_store.time_shift,
+                         samples_recorded=stream_store.n_samples,
+                         samples_expected=stream_store.expected_samples)
+
     def get_info(self) -> RecordingInfo:
         signal_info = InletInfo()
-        if self.signal_stream is not None:
-            signal_info.source_id = self.signal_stream.source_id
-            signal_info.sfreq = self.signal_stream.info['sfreq']
-            signal_info.n_channels = len(self.signal_stream.ch_names)
-            signal_info.iterations = self.signal_iterations
-            signal_info.time_shift = self.signal_time_shift
-            signal_info.samples_recorded = self.signal_values.shape[-1]
-            signal_info.samples_expected = math.ceil((self.recording_end_time - self.recording_start_time).seconds * signal_info.sfreq)
+        if self.has_signal_stream():
+            signal_info = self.get_stream_info(self.get_signal_recorder())
 
         marker_info = InletInfo()
-        if self.marker_stream is not None:
-            marker_info.source_id = self.marker_stream.name
-            marker_info.sfreq = self.signal_stream.info['sfreq']
-            marker_info.n_channels = self.marker_stream.n_channels
-            marker_info.iterations = self.marker_iterations
-            marker_info.time_shift = self.marker_time_shift
-            marker_info.samples_recorded = len(self.marker_values)
-            marker_info.samples_expected = math.ceil((self.recording_end_time - self.recording_start_time).seconds * marker_info.sfreq)
+        if self.has_marker_stream():
+            marker_info = self.get_stream_info(self.get_marker_recorder())
 
-        return RecordingInfo(start_time=self.recording_start_time,
-                             end_time=self.recording_end_time,
-                             duration=self.recording_end_time - self.recording_start_time,
+        return RecordingInfo(start_time=self.recorder_store.recording_start_time,
+                             end_time=self.recorder_store.recording_end_time,
+                             duration=self.recorder_store.recording_duration,
                              signal_info=signal_info,
                              marker_info=marker_info,
                              file_path=None)
+
+    def stream_summary(self, recorder: RecordingWorker):
+        if recorder.stream_store.has_stream is not None:
+            stream_store = recorder.stream_store
+            print(f"Steam: {stream_store.source_id}")
+            print(f"Stream Type: {stream_store.stream_type}")
+            print(f"Number of Channels: {stream_store.n_channels}")
+            print(f"Sampling Frequency: {stream_store.sfreq}")
+            print(f"First Sample Time: {stream_store.first_sample_datetime}")
+            print(f"Last Sample Time: {stream_store.last_sample_datetime}")
+            print(f"Recording Duration: {format_seconds(stream_store.duration)}")
+            print(f"Number of Samples: {stream_store.n_samples} \n")
 
     def summary(self):
         print("--------------------------------------------------------------------------------------")
         print(f"Recording Summary")
         print("--------------------------------------------------------------------------------------", "\n")
-        print(f"Recording Started at: {self.recording_start_time}")
-        print(f"Recording Ended at: {self.recording_end_time}")
-        print(f"Recoding Duration: {self.recording_end_time - self.recording_start_time} \n")
+        print(f"Recording Started at: {self.recorder_store.recording_start_time}")
+        print(f"Recording Ended at: {self.recorder_store.recording_end_time}")
+        print(f"Recoding Duration: {self.recorder_store.recording_duration} \n")
 
-        if self.signal_stream is not None:
-            print(f"First Signal Time: {self.first_signal_datetime}")
-            print(f"Last Signal Time: {self.last_signal_datetime}")
-            signal_duration = self.last_signal_datetime - self.first_signal_datetime
-            print(f"Signal Recording Duration: {format_seconds(signal_duration.seconds)}")
-            print(f"Number of Signal Windows: {len(self.signal_values)} \n")
-
-        if self.marker_stream is not None:
-            print(f"First Marker Time: {self.first_marker_datetime}")
-            print(f"Last Marker Time: {self.last_marker_datetime}")
-            if self.last_marker_datetime is not None and self.first_marker_datetime is not None:
-                marker_duration = self.last_marker_datetime - self.first_marker_datetime
-            else:
-                marker_duration = timedelta(seconds=0)
-            print(f"Marker Recording Duration: {format_seconds(marker_duration.seconds)}")
-            print(f"Number of Markers: {len(self.marker_values)}")
+        for recorder in self.recorders:
+            self.stream_summary(recorder)
         print("--------------------------------------------------------------------------------------")

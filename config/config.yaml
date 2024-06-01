@@ -4,6 +4,12 @@ defaults:
   - headset: unicorn
   - _self_
 
+sources:
+  - - ${headset.source_id}
+    - 'EEG'
+  - - 'rsvp_markers'
+    - 'MARKER'
+
 signal_id: ${headset.source_id}
 marker_id: 'rsvp_markers'
 #marker_id: null
@@ -14,6 +20,8 @@ recording:
   block: 0
 
 buffer_size_seconds: 60
+
+persisting_mode: 'continuous'
 
 preprocessors:
   - name: 'eeg_scaler'
