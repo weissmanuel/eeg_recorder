@@ -52,7 +52,7 @@ class MneRawPersister(Persister):
                 data = preprocessor(info, data)
         return data
 
-    def add_annotations(self, raw: RawArray, marker_store: StreamStore, signal_store: StreamStore) -> RawArray:
+    def add_annotations(self, raw: RawArray, signal_store: StreamStore, marker_store: StreamStore) -> RawArray:
         if marker_store is not None and marker_store.stream_type == StreamType.MARKER and marker_store.n_samples > 0:
             first_signal_lsl_seconds = signal_store.first_sample_lsl_seconds
             marker_values = marker_store.data
@@ -69,8 +69,8 @@ class MneRawPersister(Persister):
         signal = self.preprocess(info, signal)
         raw = RawArray(signal, info)
 
-        for store in marker_stores:
-            raw = self.add_annotations(raw, store)
+        for marker_store in marker_stores:
+            raw = self.add_annotations(raw, signal_store, marker_store)
 
         raw.set_meas_date(signal_store.first_sample_datetime.replace(tzinfo=timezone.utc).timestamp())
 

@@ -14,7 +14,7 @@ from lib.preprocess import get_preprocessors, Preprocessor
 from multiprocessing import Manager
 from lib.worker import RecordingWorker
 from lib.store import StreamType, StreamStore, RecorderStore
-from persist import MneRawPersister, Persister
+from lib.persist import MneRawPersister, Persister
 
 
 class InletInfo:
@@ -94,6 +94,7 @@ class Recorder:
         self.buffer_size_seconds = buffer_size_seconds
 
         self.manager = Manager()
+        self.persister = MneRawPersister(config=config)
         self.initialise_recorders()
 
     def initialise_recorders(self):
