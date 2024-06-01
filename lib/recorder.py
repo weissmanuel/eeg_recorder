@@ -178,7 +178,7 @@ class Recorder:
             marker_times = marker_store.times - first_signal_lsl_seconds
             raw.set_annotations(mne.Annotations(onset=marker_times, duration=[0.05] * len(marker_times),
                                                 description=marker_values.astype(str)))
-            return raw
+        return raw
 
     def get_raw(self):
         assert not self.is_recording, "You cannot generate an MNE Raw object while recording"

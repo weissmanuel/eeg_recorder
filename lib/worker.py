@@ -82,7 +82,7 @@ class RecordingWorker(Worker):
 
         self.stream_store.last_batch_received_time = times[-1]
         self.stream_store.current_time = recording_stopped_at if recording_stopped_at is not None else local_clock()
-        self.stream_store.signal_time_shift = self.stream_store.current_time - self.stream_store.last_batch_received_time
+        self.stream_store.time_shift = self.stream_store.current_time - self.stream_store.last_batch_received_time
 
     def log_first_iteration(self, times: List[any]):
         self.stream_store.first_sample_lsl_seconds = times[0].copy()
