@@ -157,6 +157,13 @@ class StreamStore:
         self._first_sample_lsl_seconds.value = value
 
     @property
+    def last_sample_lsl_seconds(self) -> float:
+        if len(self.times) > 0:
+            return float(self.times[-1])
+        else:
+            return 0.0
+
+    @property
     def first_sample_system_seconds(self) -> float:
         return self._first_sample_system_seconds.value
 

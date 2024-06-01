@@ -79,13 +79,17 @@ class RecordingWorker(Worker):
         self.stream_store.time_shift = 0.0
         self.stream_store.start_time_seconds = local_clock()
 
+    def evaluate_time_shift(self, times: Union[List, None] = None, recording_stopped_at: Union[float, None] = None):
+        if times is not None:
+            self.stream_store.last_batch_received_time = times[-1]
+        self.stream_store.current_time = recording_stopped_at if recording_stopped_at is not None else local_clock()
+        self.stream_store.time_shift = self.stream_store.current_time - self.stream_store.last_batch_received_time
+
     def add_data(self, data: any, times: any, recording_stopped_at: Union[float, None] = None):
         self.stream_store.append_data(data.copy())
         self.stream_store.append_times(times.copy())
 
-        self.stream_store.last_batch_received_time = times[-1]
-        self.stream_store.current_time = recording_stopped_at if recording_stopped_at is not None else local_clock()
-        self.stream_store.time_shift = self.stream_store.current_time - self.stream_store.last_batch_received_time
+        self.evaluate_time_shift(times, recording_stopped_at)
 
     def log_first_iteration(self, times: List[any]):
         self.stream_store.first_sample_lsl_seconds = times[0].copy()
@@ -110,6 +114,15 @@ class RecordingWorker(Worker):
                          f"Expected: {expected_samples}, Difference: {difference}, "
                          f"Duration: {format_seconds(duration)}")
 
+    def continue_recording(self) -> bool:
+        if self.stream_store.stream_type.is_signal:
+            return (self.recorder_store.is_recording or
+                    (self.stream_store.time_shift > -self.stream_store.safety_offset_seconds
+                     and self.stream_store.n_samples > 0))
+        else:
+            offset = self.stream_store.current_time - self.stream_store.last_sample_lsl_seconds
+            return self.recorder_store.is_recording or offset < self.stream_store.safety_offset_seconds
+
     def work(self):
 
         stream = connect(self.stream_store.source_id, self.stream_store.stream_type, self.buffer_size_seconds)
@@ -123,8 +136,7 @@ class RecordingWorker(Worker):
 
             recording_stopped_at: Union[float, None] = None
 
-            while (self.recorder_store.is_recording
-                   or self.stream_store.time_shift > -self.stream_store.safety_offset_seconds):
+            while self.continue_recording():
 
                 if not self.recorder_store.is_recording and recording_stopped_at is None:
                     recording_stopped_at = local_clock()
@@ -144,6 +156,8 @@ class RecordingWorker(Worker):
                             self.log_first_iteration(times)
 
                         self.stream_store.increment_iterations()
+                else:
+                    self.evaluate_time_shift(recording_stopped_at=recording_stopped_at)
                 time.sleep(0.01)
 
             self.stream_store.end_time_seconds = (recording_stopped_at if
