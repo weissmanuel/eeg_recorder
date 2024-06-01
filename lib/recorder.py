@@ -131,7 +131,6 @@ class Recorder:
     def start(self):
         if not self.is_recording:
             self.reset_recording()
-            self.connect()
             self.logger.info("Starting Recording")
             self.recorder_store.start()
 

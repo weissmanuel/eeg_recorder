@@ -10,6 +10,7 @@ import math
 from mne_lsl.lsl import local_clock
 from lib.utils import format_seconds
 from multiprocessing import Process
+from lib.lsl import connect, disconnect
 
 
 class Worker(ABC):
@@ -22,7 +23,6 @@ class Worker(ABC):
 class RecordingWorker(Worker):
     logger = logging.getLogger(__name__)
 
-    stream: Union[StreamLSL, None] = None
     process: Process
 
     recorder_store: RecorderStore
@@ -43,9 +43,8 @@ class RecordingWorker(Worker):
 
         self.process = Process(target=self.work)
 
-    @property
-    def buffer_size(self) -> int:
-        if self.stream is not None:
+    def buffer_size(self, stream: StreamLSL) -> int:
+        if stream is not None:
             sfreq = self.stream.info['sfreq']
             return math.ceil(self.buffer_size_seconds * sfreq)
         return 0
@@ -61,22 +60,6 @@ class RecordingWorker(Worker):
     @property
     def recording_completed(self) -> bool:
         return self.stream_store.recording_completed
-
-    def connect(self):
-        self.logger.debug(f"Start Connecting to LSL Stream: {self.source_id} of type {self.stream_type.value}")
-        try:
-            self.stream = StreamLSL(bufsize=self.buffer_size_seconds, source_id=self.source_id)
-            self.stream.connect()
-            self.logger.info(f"Connected to LSL Stream: {self.source_id} of type {self.stream_type.value}")
-        except Exception as e:
-            self.logger.warning(f"Failed to connect to LSK Streams {self.source_id}: {e}")
-            self.stream_store.recording_completed = True
-            self.stream = None
-
-    def disconnect(self):
-        if self.stream is not None:
-            self.stream.disconnect()
-            self.stream = None
 
     def start(self):
         self.process.start()
@@ -120,13 +103,16 @@ class RecordingWorker(Worker):
                          f"Duration: {format_seconds(duration)}")
 
     def work(self):
-        if self.stream is not None and self.stream.connected:
+
+        stream = connect(self.stream_store.source_id, self.stream_store.stream_type, self.buffer_size_seconds)
+
+        if stream is not None and stream.connected:
 
             self.logger.info(f"Start Recording of Stream: {self.stream_store.source_id}")
             values: List[ndarray] = []
             times: List[ndarray] = []
 
-            sfreq: float = self.stream.info['sfreq']
+            sfreq: float = stream.info['sfreq']
             self.stream_store.sfreq = sfreq
             self.stream_store.time_shift = 0.0
             self.stream_store.start_time_seconds = local_clock()
@@ -140,12 +126,12 @@ class RecordingWorker(Worker):
                     recording_stopped_at = local_clock()
 
                 if sfreq is not None and sfreq > 0:
-                    window_size = self.stream.n_new_samples / sfreq
+                    window_size = stream.n_new_samples / sfreq
                 else:
-                    window_size = self.stream.n_new_samples
+                    window_size = stream.n_new_samples
 
                 if window_size > 0:
-                    (values, times) = self.stream.get_data(winsize=window_size)
+                    (values, times) = stream.get_data(winsize=window_size)
 
                     if values is not None and len(values) > 0:
                         self.add_data(values, times, recording_stopped_at)
@@ -160,10 +146,12 @@ class RecordingWorker(Worker):
                                                   recording_stopped_at is not None else local_clock())
 
             if self.stream_store.sample_deviation > 0:
-                self.logger.warning(f"Recorded less samples than expected: {self.stream_store.sample_deviation} samples")
+                self.logger.warning(
+                    f"Recorded less samples than expected: {self.stream_store.sample_deviation} samples")
 
             self.log_recording_completed()
-            # np.abs(np.abs(np.diff(np.abs(self.signal_times - start_time))) - 1 / sfreq)
 
             self.logger.debug(f"Finished Signal Recording for Stream: {self.source_id}")
+            self.stream_store.recording_completed = True
+        else:
             self.stream_store.recording_completed = True
