@@ -14,6 +14,7 @@ from lib.preprocess import get_preprocessors, Preprocessor
 from multiprocessing import Manager
 from lib.worker import RecordingWorker
 from lib.store import StreamType, StreamStore, RecorderStore
+from persist import MneRawPersister, Persister
 
 
 class InletInfo:
@@ -79,6 +80,7 @@ class Recorder:
     logger = logging.getLogger(__name__)
 
     manager: Manager
+    persister: MneRawPersister
 
     def __init__(self,
                  config: Union[dict | DictConfig],
@@ -208,19 +210,15 @@ class Recorder:
             block = self.config.recording.block
             return f"./data/recordings/recoding_subject_{subject}_session_{session}_block_{block}.fif"
 
-    def save_raw(self, file_path: Union[str, None] = None) -> Tuple[RawArray, Path]:
-        raw = self.get_raw()
-        self.logger.info(f"Saving raw data to {file_path}")
-        file_path = Path(file_path if file_path is not None else self.get_file_path())
-        file_path.parent.mkdir(parents=True, exist_ok=True)
-        raw.save(file_path, overwrite=True)
-        self.logger.info(f"Saved raw data to {file_path}")
-        return raw, file_path
+    def save(self, file_path: Union[str, None] = None) -> Tuple[RawArray, Path]:
+        assert not self.is_recording, "You cannot generate an MNE Raw object while recording"
+        stores = [recorder.stream_store for recorder in self.recorders]
+        return self.persister.save(stores, file_path)
 
     def complete(self, file_path: Union[str, None] = None) -> Tuple[Union[RawArray, None], RecordingInfo]:
         if self.is_recording:
             self.stop()
-            raw, path = self.save_raw(file_path)
+            raw, path = self.save(file_path)
             info = self.get_info()
             info.file_path = path
             self.logger.info("Recording Completed")

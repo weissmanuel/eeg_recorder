@@ -11,9 +11,15 @@ from mne_lsl.lsl import local_clock
 from lib.utils import format_seconds
 from multiprocessing import Process
 from lib.lsl import connect, disconnect
+from lib.store import RecorderStore, StreamStore
+import time
+from omegaconf import DictConfig
 
 
 class Worker(ABC):
+    logger = logging.getLogger(__name__)
+
+    process: Process
 
     @abstractmethod
     def work(self):
@@ -21,9 +27,6 @@ class Worker(ABC):
 
 
 class RecordingWorker(Worker):
-    logger = logging.getLogger(__name__)
-
-    process: Process
 
     recorder_store: RecorderStore
     stream_store: StreamStore
@@ -174,3 +177,26 @@ class RecordingWorker(Worker):
             disconnect(stream)
         else:
             self.stream_store.recording_completed = True
+
+
+class FileStorageWorker(Worker):
+
+    def __init__(self,
+                 interval: int,
+                 recorder_store: RecorderStore,
+                 stream_stores: List[StreamStore],
+                 config: DictConfig
+                 ):
+
+        self.interval = interval
+
+        self.recorder_store = recorder_store
+        self.stream_stores = stream_stores
+
+        self.config = config
+
+        self.process = Process(target=self.work)
+
+    def work(self):
+        while self.recorder_store.is_recording:
+            time.sleep(self.interval)
