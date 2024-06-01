@@ -133,6 +133,11 @@ class StreamStore:
 
     def get_and_clear_data_times(self) -> Tuple[ndarray, ndarray]:
         data, times = self.get_and_clear_data(), self.get_and_clear_times()
+        self.iterations = 0
+        self.first_sample_lsl_seconds = 0.0
+        self.first_sample_system_seconds = 0.0
+        self.first_sample_datetime = None
+        self.last_sample_datetime = None
         assert len(data) == len(
             times), f"Data and Times must have the same length. Data: {len(data)}, Times: {len(times)}"
         return data, times
@@ -294,6 +299,27 @@ class StreamStore:
         self.start_time_seconds = 0.0
         self.end_time_seconds = 0.0
         self.sfreq = 0.0
+
+    def copy_state(self):
+        return {
+            'data': self.data,
+            'times': self.times,
+            'iterations': self.iterations,
+            'first_sample_lsl_seconds': self.first_sample_lsl_seconds,
+            'first_sample_system_seconds': self.first_sample_system_seconds,
+            'recording_completed': self.recording_completed,
+            'first_sample_datetime': self.first_sample_datetime,
+            'last_sample_datetime': self.last_sample_datetime,
+            'time_shift': self.time_shift,
+            'last_batch_received_time': self.last_batch_received_time,
+            'current_time': self.current_time,
+            'start_time_seconds': self.start_time_seconds,
+            'end_time_seconds': self.end_time_seconds,
+            'sfreq': self.sfreq,
+            'stream_info': self.stream_info,
+            'n_channels': self.n_channels,
+            'has_stream': self.has_stream
+        }
 
 
 class RecorderStore:

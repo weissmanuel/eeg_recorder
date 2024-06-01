@@ -67,17 +67,38 @@ class MneRawPersister(Persister):
                 data = preprocessor(info, data)
         return data
 
-    def add_annotations(self, raw: RawArray, signal_store: StreamStore, marker_store: StreamStore) -> RawArray:
+    def add_annotations(self,
+                        raw: RawArray,
+                        signal_store: StreamStore,
+                        marker_store: StreamStore,
+                        intermediate_save: bool = False,
+                        signal_state: Union[dict, None] = None
+                        ) -> RawArray:
         if marker_store is not None and marker_store.stream_type == StreamType.MARKER and marker_store.n_samples > 0:
-            first_signal_lsl_seconds = signal_store.first_sample_lsl_seconds
-            marker_values = marker_store.data
-            marker_times = marker_store.times - first_signal_lsl_seconds
+            first_signal_lsl_seconds = signal_store.first_sample_lsl_seconds if signal_state is None else signal_state[
+                'first_sample_lsl_seconds']
+            if intermediate_save:
+                marker_values, marker_times = marker_store.get_and_clear_data_times()
+            else:
+                marker_values = marker_store.data
+                marker_times = marker_store.times - first_signal_lsl_seconds
             raw.set_annotations(mne.Annotations(onset=marker_times, duration=[0.05] * len(marker_times),
                                                 description=marker_values.astype(str)))
         return raw
 
-    def get_raw(self, signal_store: StreamStore, marker_stores: List[StreamStore]) -> RawArray:
-        signal = signal_store.data
+    def get_raw(self,
+                signal_store: StreamStore,
+                marker_stores: List[StreamStore],
+                intermediate_save: bool = False) -> RawArray:
+
+        signal_state: Union[dict, None] = None
+
+        if intermediate_save:
+            signal_state = signal_store.copy_state()
+            signal, _ = signal_store.get_and_clear_data_times()
+        else:
+            signal = signal_store.data
+
         assert signal_store.n_samples > 0, "No signal data recorded"
         self.logger.info("Generating MNE Raw Object")
         info = self.create_mne_info(signal_store)
@@ -85,7 +106,7 @@ class MneRawPersister(Persister):
         raw = RawArray(signal, info)
 
         for marker_store in marker_stores:
-            raw = self.add_annotations(raw, signal_store, marker_store)
+            raw = self.add_annotations(raw, signal_store, marker_store, intermediate_save, signal_state)
 
         raw.set_meas_date(signal_store.first_sample_datetime.replace(tzinfo=timezone.utc).timestamp())
 
@@ -120,8 +141,9 @@ class MneRawPersister(Persister):
     def save_raw(self,
                  signal_store: StreamStore,
                  marker_stores: List[StreamStore],
-                 file_path: Union[str, None] = None) -> Tuple[RawArray, Path]:
-        raw = self.get_raw(signal_store, marker_stores)
+                 file_path: Union[str, None] = None,
+                 intermediate_save: bool = False) -> Tuple[RawArray, Path]:
+        raw = self.get_raw(signal_store, marker_stores, intermediate_save)
         self.logger.info(f"Saving raw data to {file_path}")
         file_path = Path(file_path if file_path is not None else self.get_file_path())
         file_path.parent.mkdir(parents=True, exist_ok=True)
@@ -130,11 +152,14 @@ class MneRawPersister(Persister):
         self.logger.info(f"Saved raw data to {file_path}")
         return raw, file_path
 
-    def save(self, stores: List[StreamStore], file_path: Union[str, None] = None) -> Tuple[RawArray, Path]:
+    def save(self,
+             stores: List[StreamStore],
+             file_path: Union[str, None] = None,
+             intermediate_save: bool = False) -> Tuple[RawArray, Path]:
         signal_store = [store for store in stores if store.stream_type.is_signal]
         assert len(signal_store) == 1, "Only one signal store is currently supported."
 
         marker_stores = [store for store in stores if store.stream_type.is_marker]
-        raw, file_path = self.save_raw(signal_store[0], marker_stores, file_path)
+        raw, file_path = self.save_raw(signal_store[0], marker_stores, file_path, intermediate_save)
 
         return raw, file_path

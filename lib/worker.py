@@ -14,6 +14,7 @@ from lib.lsl import connect, disconnect
 from lib.store import RecorderStore, StreamStore
 import time
 from omegaconf import DictConfig
+from lib.persist import Persister, PersistingMode, MneRawPersister
 
 
 class Worker(ABC):
@@ -186,13 +187,13 @@ class RecordingWorker(Worker):
             self.stream_store.recording_completed = True
 
 
-class FileStorageWorker(Worker):
+class PersistenceWorker(Worker):
 
     def __init__(self,
                  interval: int,
                  recorder_store: RecorderStore,
                  stream_stores: List[StreamStore],
-                 config: DictConfig
+                 persister: MneRawPersister
                  ):
 
         self.interval = interval
@@ -200,10 +201,11 @@ class FileStorageWorker(Worker):
         self.recorder_store = recorder_store
         self.stream_stores = stream_stores
 
-        self.config = config
+        self.persister = persister
 
         self.process = Process(target=self.work)
 
     def work(self):
         while self.recorder_store.is_recording:
             time.sleep(self.interval)
+            self.persister.save(self.stream_stores, intermediate_save=True)
