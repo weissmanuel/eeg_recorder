@@ -22,13 +22,26 @@ class Worker(ABC):
 
     process: Process
 
+    def get_new_process(self):
+        return Process(target=self.work)
+
+    def start(self):
+        self.process.start()
+
+    def stop(self):
+        try:
+            self.process.terminate()
+            self.process.join()
+        except Exception as e:
+            self.logger.error(f"Error while stopping worker: {e}")
+        self.process = self.get_new_process()
+
     @abstractmethod
     def work(self):
         pass
 
 
 class RecordingWorker(Worker):
-
     recorder_store: RecorderStore
     stream_store: StreamStore
 
@@ -64,20 +77,6 @@ class RecordingWorker(Worker):
     @property
     def recording_completed(self) -> bool:
         return self.stream_store.recording_completed
-
-    def get_new_process(self):
-        return Process(target=self.work)
-
-    def start(self):
-        self.process.start()
-
-    def stop(self):
-        try:
-            self.process.terminate()
-            self.process.join()
-        except Exception as e:
-            self.logger.error(f"Error while stopping worker: {e}")
-        self.process = self.get_new_process()
 
     def reset(self):
         self.stream_store.reset()
@@ -195,7 +194,6 @@ class PersistenceWorker(Worker):
                  stream_stores: List[StreamStore],
                  persister: MneRawPersister
                  ):
-
         self.interval = interval
 
         self.recorder_store = recorder_store
@@ -203,7 +201,7 @@ class PersistenceWorker(Worker):
 
         self.persister = persister
 
-        self.process = Process(target=self.work)
+        self.process = self.get_new_process()
 
     def work(self):
         while self.recorder_store.is_recording:

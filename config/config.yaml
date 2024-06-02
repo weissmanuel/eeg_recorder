@@ -22,6 +22,9 @@ recording:
 buffer_size_seconds: 60
 
 persisting_mode: 'continuous'
+persister_workers:
+  - name: 'default'
+    interval: 30
 
 preprocessors:
   - name: 'eeg_scaler'
