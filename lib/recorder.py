@@ -14,7 +14,7 @@ from lib.preprocess import get_preprocessors, Preprocessor
 from multiprocessing import Manager
 from lib.worker import RecordingWorker, PersistenceWorker, Worker
 from lib.store import StreamType, StreamStore, RecorderStore
-from lib.persist import MneRawPersister, Persister
+from lib.persist import MneRawPersister, PersistingMode
 
 
 class InletInfo:
@@ -132,6 +132,8 @@ class Recorder:
         self.recorder_store.reset()
         for recorder in self.recorders:
             recorder.reset()
+        if self.persister.persisting_mode == PersistingMode.CONTINUOUS:
+            self.persister.delete()
 
     def get_workers(self) -> List[Worker]:
         return self.recorders + self.persister_workers

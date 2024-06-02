@@ -160,3 +160,11 @@ class MneRawPersister(Persister):
         raw, file_path = self.save_raw(signal_store[0], marker_stores, file_path, intermediate_save)
 
         return raw, file_path
+
+    def delete(self):
+        file_path: Path = Path(self.get_file_path())
+        try:
+            file_path.unlink(missing_ok=True)
+            self.logger.info(f"Deleted Existing File: {file_path}")
+        except FileNotFoundError:
+            self.logger.info(f"Failed to delete file: {file_path}")
