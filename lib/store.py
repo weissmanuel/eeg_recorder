@@ -5,6 +5,7 @@ from enum import Enum
 import numpy as np
 from numpy import ndarray
 from mne import Info
+import copy
 
 
 class StreamType(Enum):
@@ -138,8 +139,8 @@ class StreamStore:
         self.first_sample_system_seconds = 0.0
         self.first_sample_datetime = None
         self.last_sample_datetime = None
-        assert len(data) == len(
-            times), f"Data and Times must have the same length. Data: {len(data)}, Times: {len(times)}"
+        assert data.shape[-1] == times.data.shape[-1], \
+            f"Data and Times must have the same length. Data: {len(data)}, Times: {len(times)}"
         return data, times
 
     @property
@@ -321,13 +322,18 @@ class StreamStore:
             'has_stream': self.has_stream
         }
 
+    def copy(self):
+        return copy.deepcopy(self)
+
 
 class RecorderStore:
 
     def __init__(self, manager: Manager):
         self._is_recording = manager.Value('b', False)
+        self._is_paused = manager.Value('b', False)
         self._recording_start_time = manager.Value('O', None)
         self._recording_end_time = manager.Value('O', None)
+
 
     @property
     def is_recording(self) -> bool:
@@ -336,6 +342,20 @@ class RecorderStore:
     @is_recording.setter
     def is_recording(self, value: bool) -> None:
         self._is_recording.value = value
+
+    @property
+    def is_paused(self) -> bool:
+        return self._is_paused.value
+
+    @is_paused.setter
+    def is_paused(self, value: bool) -> None:
+        self._is_paused.value = value
+
+    def pause_recording(self) -> None:
+        self.is_paused = True
+
+    def resume_recording(self) -> None:
+        self.is_paused = False
 
     @property
     def recording_start_time(self) -> datetime:

@@ -59,6 +59,7 @@ class RecordingWorker(Worker):
         self.buffer_size_seconds = buffer_size_seconds
 
         self.process = self.get_new_process()
+        self.sleep_time = 0.01
 
     def buffer_size(self, stream: StreamLSL) -> int:
         if stream is not None:
@@ -141,12 +142,14 @@ class RecordingWorker(Worker):
 
             self.logger.info(f"Start Recording of Stream: {self.stream_store.source_id}")
             self.retrieve_stream_info(stream)
-            values: List[ndarray] = []
-            times: List[ndarray] = []
 
             recording_stopped_at: Union[float, None] = None
 
             while self.continue_recording():
+
+                if self.recorder_store.is_paused:
+                    time.sleep(0.5)
+                    continue
 
                 if not self.recorder_store.is_recording and recording_stopped_at is None:
                     recording_stopped_at = local_clock()
@@ -168,7 +171,7 @@ class RecordingWorker(Worker):
                         self.stream_store.increment_iterations()
                 else:
                     self.evaluate_time_shift(recording_stopped_at=recording_stopped_at)
-                time.sleep(0.01)
+                time.sleep(self.sleep_time)
 
             self.stream_store.end_time_seconds = (recording_stopped_at if
                                                   recording_stopped_at is not None else local_clock())
@@ -206,4 +209,6 @@ class PersistenceWorker(Worker):
     def work(self):
         while self.recorder_store.is_recording:
             time.sleep(self.interval)
+            self.recorder_store.pause_recording()
             self.persister.save(self.stream_stores, intermediate_save=True)
+            self.recorder_store.resume_recording()

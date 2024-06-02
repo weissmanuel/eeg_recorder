@@ -97,6 +97,7 @@ class Recorder:
         self.manager = Manager()
         self.persister = MneRawPersister(config=config)
         self.initialise_recorders()
+        self.initialise_persisters(config)
 
     def initialise_recorders(self):
         self.recorder_store = RecorderStore(self.manager)

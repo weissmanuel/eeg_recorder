@@ -72,11 +72,9 @@ class MneRawPersister(Persister):
                         signal_store: StreamStore,
                         marker_store: StreamStore,
                         intermediate_save: bool = False,
-                        signal_state: Union[dict, None] = None
                         ) -> RawArray:
         if marker_store is not None and marker_store.stream_type == StreamType.MARKER and marker_store.n_samples > 0:
-            first_signal_lsl_seconds = signal_store.first_sample_lsl_seconds if signal_state is None else signal_state[
-                'first_sample_lsl_seconds']
+            first_signal_lsl_seconds = signal_store.first_sample_lsl_seconds
             if intermediate_save:
                 marker_values, marker_times = marker_store.get_and_clear_data_times()
             else:
@@ -91,22 +89,22 @@ class MneRawPersister(Persister):
                 marker_stores: List[StreamStore],
                 intermediate_save: bool = False) -> RawArray:
 
-        signal_state: Union[dict, None] = None
-
         if intermediate_save:
-            signal_state = signal_store.copy_state()
+            orig_state = signal_store.copy()
             signal, _ = signal_store.get_and_clear_data_times()
+            new_state = signal_store
+            signal_store = orig_state
         else:
             signal = signal_store.data
 
-        assert signal_store.n_samples > 0, "No signal data recorded"
+        assert signal.shape[-1] > 0, "No signal data recorded"
         self.logger.info("Generating MNE Raw Object")
         info = self.create_mne_info(signal_store)
         signal = self.preprocess(info, signal)
         raw = RawArray(signal, info)
 
         for marker_store in marker_stores:
-            raw = self.add_annotations(raw, signal_store, marker_store, intermediate_save, signal_state)
+            raw = self.add_annotations(raw, signal_store, marker_store, intermediate_save)
 
         raw.set_meas_date(signal_store.first_sample_datetime.replace(tzinfo=timezone.utc).timestamp())
 
@@ -148,7 +146,6 @@ class MneRawPersister(Persister):
         file_path = Path(file_path if file_path is not None else self.get_file_path())
         file_path.parent.mkdir(parents=True, exist_ok=True)
         raw, file_path = self.save_by_mode(raw, file_path)
-        self.logger.info(f"Saved raw data to {file_path}")
         self.logger.info(f"Saved raw data to {file_path}")
         return raw, file_path
 
