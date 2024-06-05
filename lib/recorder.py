@@ -12,9 +12,9 @@ from lib.utils import config_to_primitive
 from mne import Info
 from lib.preprocess import get_preprocessors, Preprocessor
 from multiprocessing import Manager
-from lib.worker import RecordingWorker
+from lib.worker import RecordingWorker, PersistenceWorker, Worker
 from lib.store import StreamType, StreamStore, RecorderStore
-from lib.persist import MneRawPersister, Persister
+from lib.persist import MneRawPersister, PersistingMode
 
 
 class InletInfo:
@@ -81,6 +81,7 @@ class Recorder:
 
     manager: Manager
     persister: MneRawPersister
+    persister_workers: List[PersistenceWorker] = []
 
     def __init__(self,
                  config: Union[dict | DictConfig],
@@ -96,6 +97,7 @@ class Recorder:
         self.manager = Manager()
         self.persister = MneRawPersister(config=config)
         self.initialise_recorders()
+        self.initialise_persisters(config)
 
     def initialise_recorders(self):
         self.recorder_store = RecorderStore(self.manager)
@@ -105,6 +107,17 @@ class Recorder:
             stream_store = StreamStore(self.manager, source_id, stream_type)
             recorder = RecordingWorker(self.recorder_store, stream_store, self.buffer_size_seconds)
             self.recorders.append(recorder)
+
+    def initialise_persisters(self, config: DictConfig):
+        if 'persister_workers' in config and config.persister_workers is not None:
+            stream_stores = [recorder.stream_store for recorder in self.recorders]
+            for persister_config in config.persister_workers:
+
+                persister_worker = PersistenceWorker(interval=persister_config.interval,
+                                                     recorder_store=self.recorder_store,
+                                                     stream_stores=stream_stores,
+                                                     persister=self.persister)
+                self.persister_workers.append(persister_worker)
 
     @property
     def is_recording(self) -> bool:
@@ -119,6 +132,11 @@ class Recorder:
         self.recorder_store.reset()
         for recorder in self.recorders:
             recorder.reset()
+        if self.persister.persisting_mode == PersistingMode.CONTINUOUS:
+            self.persister.delete()
+
+    def get_workers(self) -> List[Worker]:
+        return self.recorders + self.persister_workers
 
     def start(self):
         if not self.is_recording:
@@ -126,8 +144,8 @@ class Recorder:
             self.logger.info("Starting Recording")
             self.recorder_store.start()
 
-            for recorder in self.recorders:
-                recorder.start()
+            for worker in self.get_workers():
+                worker.start()
 
     def stop(self):
         if self.is_recording:
@@ -223,8 +241,8 @@ class Recorder:
             info = self.get_info()
             info.file_path = path
             self.logger.info("Recording Completed")
-            for recorder in self.recorders:
-                recorder.stop()
+            for worker in self.get_workers():
+                worker.stop()
             return raw, info
         else:
             return None, RecordingInfo()

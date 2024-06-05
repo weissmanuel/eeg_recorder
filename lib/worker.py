@@ -14,6 +14,7 @@ from lib.lsl import connect, disconnect
 from lib.store import RecorderStore, StreamStore
 import time
 from omegaconf import DictConfig
+from lib.persist import Persister, PersistingMode, MneRawPersister
 
 
 class Worker(ABC):
@@ -21,13 +22,26 @@ class Worker(ABC):
 
     process: Process
 
+    def get_new_process(self):
+        return Process(target=self.work)
+
+    def start(self):
+        self.process.start()
+
+    def stop(self):
+        try:
+            self.process.terminate()
+            self.process.join()
+        except Exception as e:
+            self.logger.error(f"Error while stopping worker: {e}")
+        self.process = self.get_new_process()
+
     @abstractmethod
     def work(self):
         pass
 
 
 class RecordingWorker(Worker):
-
     recorder_store: RecorderStore
     stream_store: StreamStore
 
@@ -45,6 +59,7 @@ class RecordingWorker(Worker):
         self.buffer_size_seconds = buffer_size_seconds
 
         self.process = self.get_new_process()
+        self.sleep_time = 0.01
 
     def buffer_size(self, stream: StreamLSL) -> int:
         if stream is not None:
@@ -63,20 +78,6 @@ class RecordingWorker(Worker):
     @property
     def recording_completed(self) -> bool:
         return self.stream_store.recording_completed
-
-    def get_new_process(self):
-        return Process(target=self.work)
-
-    def start(self):
-        self.process.start()
-
-    def stop(self):
-        try:
-            self.process.terminate()
-            self.process.join()
-        except Exception as e:
-            self.logger.error(f"Error while stopping worker: {e}")
-        self.process = self.get_new_process()
 
     def reset(self):
         self.stream_store.reset()
@@ -141,12 +142,14 @@ class RecordingWorker(Worker):
 
             self.logger.info(f"Start Recording of Stream: {self.stream_store.source_id}")
             self.retrieve_stream_info(stream)
-            values: List[ndarray] = []
-            times: List[ndarray] = []
 
             recording_stopped_at: Union[float, None] = None
 
             while self.continue_recording():
+
+                if self.recorder_store.is_paused:
+                    time.sleep(0.5)
+                    continue
 
                 if not self.recorder_store.is_recording and recording_stopped_at is None:
                     recording_stopped_at = local_clock()
@@ -168,7 +171,7 @@ class RecordingWorker(Worker):
                         self.stream_store.increment_iterations()
                 else:
                     self.evaluate_time_shift(recording_stopped_at=recording_stopped_at)
-                time.sleep(0.01)
+                time.sleep(self.sleep_time)
 
             self.stream_store.end_time_seconds = (recording_stopped_at if
                                                   recording_stopped_at is not None else local_clock())
@@ -186,24 +189,26 @@ class RecordingWorker(Worker):
             self.stream_store.recording_completed = True
 
 
-class FileStorageWorker(Worker):
+class PersistenceWorker(Worker):
 
     def __init__(self,
                  interval: int,
                  recorder_store: RecorderStore,
                  stream_stores: List[StreamStore],
-                 config: DictConfig
+                 persister: MneRawPersister
                  ):
-
         self.interval = interval
 
         self.recorder_store = recorder_store
         self.stream_stores = stream_stores
 
-        self.config = config
+        self.persister = persister
 
-        self.process = Process(target=self.work)
+        self.process = self.get_new_process()
 
     def work(self):
         while self.recorder_store.is_recording:
             time.sleep(self.interval)
+            self.recorder_store.pause_recording()
+            self.persister.save(self.stream_stores, intermediate_save=True)
+            self.recorder_store.resume_recording()

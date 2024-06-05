@@ -67,25 +67,44 @@ class MneRawPersister(Persister):
                 data = preprocessor(info, data)
         return data
 
-    def add_annotations(self, raw: RawArray, signal_store: StreamStore, marker_store: StreamStore) -> RawArray:
+    def add_annotations(self,
+                        raw: RawArray,
+                        signal_store: StreamStore,
+                        marker_store: StreamStore,
+                        intermediate_save: bool = False,
+                        ) -> RawArray:
         if marker_store is not None and marker_store.stream_type == StreamType.MARKER and marker_store.n_samples > 0:
             first_signal_lsl_seconds = signal_store.first_sample_lsl_seconds
-            marker_values = marker_store.data
-            marker_times = marker_store.times - first_signal_lsl_seconds
+            if intermediate_save:
+                marker_values, marker_times = marker_store.get_and_clear_data_times()
+            else:
+                marker_values = marker_store.data
+                marker_times = marker_store.times - first_signal_lsl_seconds
             raw.set_annotations(mne.Annotations(onset=marker_times, duration=[0.05] * len(marker_times),
                                                 description=marker_values.astype(str)))
         return raw
 
-    def get_raw(self, signal_store: StreamStore, marker_stores: List[StreamStore]) -> RawArray:
-        signal = signal_store.data
-        assert signal_store.n_samples > 0, "No signal data recorded"
+    def get_raw(self,
+                signal_store: StreamStore,
+                marker_stores: List[StreamStore],
+                intermediate_save: bool = False) -> RawArray:
+
+        if intermediate_save:
+            orig_state = signal_store.copy()
+            signal, _ = signal_store.get_and_clear_data_times()
+            new_state = signal_store
+            signal_store = orig_state
+        else:
+            signal = signal_store.data
+
+        assert signal.shape[-1] > 0, "No signal data recorded"
         self.logger.info("Generating MNE Raw Object")
         info = self.create_mne_info(signal_store)
         signal = self.preprocess(info, signal)
         raw = RawArray(signal, info)
 
         for marker_store in marker_stores:
-            raw = self.add_annotations(raw, signal_store, marker_store)
+            raw = self.add_annotations(raw, signal_store, marker_store, intermediate_save)
 
         raw.set_meas_date(signal_store.first_sample_datetime.replace(tzinfo=timezone.utc).timestamp())
 
@@ -120,21 +139,32 @@ class MneRawPersister(Persister):
     def save_raw(self,
                  signal_store: StreamStore,
                  marker_stores: List[StreamStore],
-                 file_path: Union[str, None] = None) -> Tuple[RawArray, Path]:
-        raw = self.get_raw(signal_store, marker_stores)
+                 file_path: Union[str, None] = None,
+                 intermediate_save: bool = False) -> Tuple[RawArray, Path]:
+        raw = self.get_raw(signal_store, marker_stores, intermediate_save)
         self.logger.info(f"Saving raw data to {file_path}")
         file_path = Path(file_path if file_path is not None else self.get_file_path())
         file_path.parent.mkdir(parents=True, exist_ok=True)
         raw, file_path = self.save_by_mode(raw, file_path)
         self.logger.info(f"Saved raw data to {file_path}")
-        self.logger.info(f"Saved raw data to {file_path}")
         return raw, file_path
 
-    def save(self, stores: List[StreamStore], file_path: Union[str, None] = None) -> Tuple[RawArray, Path]:
+    def save(self,
+             stores: List[StreamStore],
+             file_path: Union[str, None] = None,
+             intermediate_save: bool = False) -> Tuple[RawArray, Path]:
         signal_store = [store for store in stores if store.stream_type.is_signal]
         assert len(signal_store) == 1, "Only one signal store is currently supported."
 
         marker_stores = [store for store in stores if store.stream_type.is_marker]
-        raw, file_path = self.save_raw(signal_store[0], marker_stores, file_path)
+        raw, file_path = self.save_raw(signal_store[0], marker_stores, file_path, intermediate_save)
 
         return raw, file_path
+
+    def delete(self):
+        file_path: Path = Path(self.get_file_path())
+        try:
+            file_path.unlink(missing_ok=True)
+            self.logger.info(f"Deleted Existing File: {file_path}")
+        except FileNotFoundError:
+            self.logger.info(f"Failed to delete file: {file_path}")

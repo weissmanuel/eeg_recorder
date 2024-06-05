@@ -5,6 +5,7 @@ from enum import Enum
 import numpy as np
 from numpy import ndarray
 from mne import Info
+import copy
 
 
 class StreamType(Enum):
@@ -133,8 +134,13 @@ class StreamStore:
 
     def get_and_clear_data_times(self) -> Tuple[ndarray, ndarray]:
         data, times = self.get_and_clear_data(), self.get_and_clear_times()
-        assert len(data) == len(
-            times), f"Data and Times must have the same length. Data: {len(data)}, Times: {len(times)}"
+        self.iterations = 0
+        self.first_sample_lsl_seconds = 0.0
+        self.first_sample_system_seconds = 0.0
+        self.first_sample_datetime = None
+        self.last_sample_datetime = None
+        assert data.shape[-1] == times.data.shape[-1], \
+            f"Data and Times must have the same length. Data: {len(data)}, Times: {len(times)}"
         return data, times
 
     @property
@@ -295,13 +301,39 @@ class StreamStore:
         self.end_time_seconds = 0.0
         self.sfreq = 0.0
 
+    def copy_state(self):
+        return {
+            'data': self.data,
+            'times': self.times,
+            'iterations': self.iterations,
+            'first_sample_lsl_seconds': self.first_sample_lsl_seconds,
+            'first_sample_system_seconds': self.first_sample_system_seconds,
+            'recording_completed': self.recording_completed,
+            'first_sample_datetime': self.first_sample_datetime,
+            'last_sample_datetime': self.last_sample_datetime,
+            'time_shift': self.time_shift,
+            'last_batch_received_time': self.last_batch_received_time,
+            'current_time': self.current_time,
+            'start_time_seconds': self.start_time_seconds,
+            'end_time_seconds': self.end_time_seconds,
+            'sfreq': self.sfreq,
+            'stream_info': self.stream_info,
+            'n_channels': self.n_channels,
+            'has_stream': self.has_stream
+        }
+
+    def copy(self):
+        return copy.deepcopy(self)
+
 
 class RecorderStore:
 
     def __init__(self, manager: Manager):
         self._is_recording = manager.Value('b', False)
+        self._is_paused = manager.Value('b', False)
         self._recording_start_time = manager.Value('O', None)
         self._recording_end_time = manager.Value('O', None)
+
 
     @property
     def is_recording(self) -> bool:
@@ -310,6 +342,20 @@ class RecorderStore:
     @is_recording.setter
     def is_recording(self, value: bool) -> None:
         self._is_recording.value = value
+
+    @property
+    def is_paused(self) -> bool:
+        return self._is_paused.value
+
+    @is_paused.setter
+    def is_paused(self, value: bool) -> None:
+        self._is_paused.value = value
+
+    def pause_recording(self) -> None:
+        self.is_paused = True
+
+    def resume_recording(self) -> None:
+        self.is_paused = False
 
     @property
     def recording_start_time(self) -> datetime:
