@@ -6,6 +6,9 @@ import numpy as np
 from numpy import ndarray
 from mne import Info
 import copy
+from omegaconf import DictConfig
+from .buffer import RingBuffer
+from collections import deque
 
 
 class StreamType(Enum):
@@ -334,7 +337,6 @@ class RecorderStore:
         self._recording_start_time = manager.Value('O', None)
         self._recording_end_time = manager.Value('O', None)
 
-
     @property
     def is_recording(self) -> bool:
         return self._is_recording.value
@@ -391,3 +393,98 @@ class RecorderStore:
         self.is_recording = False
         self.recording_start_time = None
         self.recording_end_time = None
+
+
+class RealTimeStore:
+
+    def __init__(self,
+                 manager: Manager,
+                 source_id: str,
+                 stream_type: StreamType,
+                 sfreq: float,
+                 window_size_seconds: float = 5,
+                 window_shift_seconds: float = 0.1,
+                 buffer_size_seconds: int = 60,
+                 low_cut: float = 1,
+                 high_cut: float = 30,
+                 notch: float = 50,
+                 target_frequencies: List[float] = None,
+                 ):
+        self.source_id = source_id
+        self.stream_type = stream_type
+
+        self.sfreq = sfreq
+        self.window_size_seconds = window_size_seconds
+        self.window_shift_seconds = window_shift_seconds
+        self.window_size = int(window_size_seconds * sfreq)
+        self.window_shift = int(window_shift_seconds * sfreq)
+        self.buffer_size_seconds = buffer_size_seconds
+        self.buffer_size = int(buffer_size_seconds * sfreq)
+
+        self.low_cut = low_cut
+        self.high_cut = high_cut
+        self.notch = notch
+
+        self._buffer = manager.list([0] * self.buffer_size)
+        self._n_new_samples = manager.Value('i', 0)
+
+        self.target_frequencies = target_frequencies if target_frequencies is not None else []
+
+    @staticmethod
+    def from_config(config: DictConfig, manager: Manager):
+        return RealTimeStore(
+            manager=manager,
+            source_id=config.source_id,
+            stream_type=StreamType.from_str(config.stream_type),
+            sfreq=config.sfreq,
+            window_size_seconds=config.window_size_seconds,
+            window_shift_seconds=config.window_shift_seconds,
+            buffer_size_seconds=config.buffer_size_seconds,
+            low_cut=config.bandpass.low_cut,
+            high_cut=config.bandpass.high_cut,
+            notch=config.notch,
+            target_frequencies=config.target_frequencies
+        )
+
+    @property
+    def head(self) -> int:
+        return max(min(self.n_new_samples, self.buffer_size), self.window_size)
+
+    @property
+    def tail(self) -> int:
+        return max(int(self.head - self.window_size), 0)
+
+    @property
+    def n_new_samples(self) -> int:
+        return self._n_new_samples.value
+
+    @n_new_samples.setter
+    def n_new_samples(self, value: int) -> None:
+        self._n_new_samples.value = value
+
+    def check_first_window_filled(self):
+        return self.n_new_samples >= self.window_size
+
+    def update_n_new_samples(self, n: int):
+        self.n_new_samples = max(min(self.n_new_samples + n, self.buffer_size), 0)
+        return self.n_new_samples
+
+    def extend(self, data: List[float]):
+        self._buffer.extend(data)
+        del self._buffer[:-self.buffer_size]
+
+    def add_data(self, data: List[float | List[float]]):
+        num_samples = len(data)
+        self.extend(data)
+        self.n_new_samples = self.update_n_new_samples(num_samples)
+
+    def has_new_data(self) -> bool:
+        return self.n_new_samples >= self.window_size
+
+    def get_data(self) -> ndarray | None:
+        if not self.has_new_data():
+            return None
+        data = self._buffer[self.buffer_size - self.head:self.buffer_size - self.tail]
+        self.update_n_new_samples(-self.window_shift)
+        assert len(data) == self.window_size
+        return np.array(data)

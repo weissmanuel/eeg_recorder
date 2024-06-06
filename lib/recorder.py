@@ -12,8 +12,8 @@ from lib.utils import config_to_primitive
 from mne import Info
 from lib.preprocess import get_preprocessors, Preprocessor
 from multiprocessing import Manager
-from lib.worker import RecordingWorker, PersistenceWorker, Worker
-from lib.store import StreamType, StreamStore, RecorderStore
+from lib.worker import RecordingWorker, PersistenceWorker, Worker, RealTimeRecorder, RealTimeWorker, RealTimeSSVEPDecoder
+from lib.store import StreamType, StreamStore, RecorderStore, RealTimeStore
 from lib.persist import MneRawPersister, PersistingMode
 
 
@@ -72,7 +72,10 @@ class Recorder:
     sources: List[Tuple[str, str]] = []
     recorders: List[RecordingWorker] = []
 
+    real_time_workers: List[RealTimeWorker] = []
+
     recorder_store: RecorderStore
+    real_time_store: RealTimeStore
 
     safety_offset_seconds: float = 1.0
 
@@ -80,7 +83,7 @@ class Recorder:
     logger = logging.getLogger(__name__)
 
     manager: Manager
-    persister: MneRawPersister
+    persister: MneRawPersister | None
     persister_workers: List[PersistenceWorker] = []
 
     def __init__(self,
@@ -95,9 +98,12 @@ class Recorder:
         self.buffer_size_seconds = buffer_size_seconds
 
         self.manager = Manager()
-        self.persister = MneRawPersister(config=config)
+        # self.persister = MneRawPersister(config=config)
+        self.persister = None
         self.initialise_recorders()
         self.initialise_persisters(config)
+        self.initialise_real_time(config)
+        self.logger.info("Recorder Initialised")
 
     def initialise_recorders(self):
         self.recorder_store = RecorderStore(self.manager)
@@ -119,6 +125,15 @@ class Recorder:
                                                      persister=self.persister)
                 self.persister_workers.append(persister_worker)
 
+    def initialise_real_time(self, config: DictConfig):
+        if 'real_time' in config and config.real_time is not None:
+            self.real_time_store = RealTimeStore.from_config(config.real_time, self.manager)
+            self.real_time_workers.append(RealTimeRecorder(self.recorder_store, self.real_time_store))
+            self.real_time_workers.append(RealTimeSSVEPDecoder(self.recorder_store, self.real_time_store))
+            # self.real_time_workers.append(RealTimeVisualizer(self.recorder_store, self.real_time_store))
+
+
+
     @property
     def is_recording(self) -> bool:
         return self.recorder_store.is_recording
@@ -132,11 +147,11 @@ class Recorder:
         self.recorder_store.reset()
         for recorder in self.recorders:
             recorder.reset()
-        if self.persister.persisting_mode == PersistingMode.CONTINUOUS:
+        if self.persister is not None and self.persister.persisting_mode == PersistingMode.CONTINUOUS:
             self.persister.delete()
 
     def get_workers(self) -> List[Worker]:
-        return self.recorders + self.persister_workers
+        return self.recorders + self.persister_workers + self.real_time_workers
 
     def start(self):
         if not self.is_recording:
@@ -237,15 +252,15 @@ class Recorder:
     def complete(self, file_path: Union[str, None] = None) -> Tuple[Union[RawArray, None], RecordingInfo]:
         if self.is_recording:
             self.stop()
-            raw, path = self.save(file_path)
-            info = self.get_info()
-            info.file_path = path
-            self.logger.info("Recording Completed")
-            for worker in self.get_workers():
-                worker.stop()
-            return raw, info
-        else:
-            return None, RecordingInfo()
+            if self.persister is not None:
+                raw, path = self.save(file_path)
+                info = self.get_info()
+                info.file_path = path
+                self.logger.info("Recording Completed")
+                for worker in self.get_workers():
+                    worker.stop()
+                return raw, info
+        return None, RecordingInfo()
 
     def get_stream_info(self, recorder: RecordingWorker) -> InletInfo:
         stream_store = recorder.stream_store

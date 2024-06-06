@@ -25,6 +25,8 @@ def main(config: DictConfig):
     interface.set_stop_action(lambda: stop(recorder, interface))
 
     interface.run()
+    interface.stop()
+    print("Stopped Interface...")
 
 
 if __name__ == "__main__":

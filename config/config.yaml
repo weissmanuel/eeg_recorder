@@ -4,11 +4,12 @@ defaults:
   - headset: unicorn
   - _self_
 
-sources:
-  - - ${headset.source_id}
-    - 'EEG'
-  - - 'rsvp_markers'
-    - 'MARKER'
+sources: []
+#sources:
+#  - - ${headset.source_id}
+#    - 'EEG'
+#  - - 'rsvp_markers'
+#    - 'MARKER'
 
 signal_id: ${headset.source_id}
 marker_id: 'rsvp_markers'
@@ -21,12 +22,29 @@ recording:
 
 buffer_size_seconds: 60
 
-persisting_mode: 'continuous'
-persister_workers:
-  - name: 'default'
-    interval: 30
+persisting_mode: 'replace'
+persister_workers: null
+#persister_workers:
+#  - name: 'default'
+#    interval: 30
 
 preprocessors:
   - name: 'eeg_scaler'
     scale: 1e-6
     channel_types: ['eeg']
+
+
+#real_time: null
+real_time:
+#  source_id: ${headset.source_id}
+  source_id: 'demo'
+  stream_type: 'EEG'
+  sfreq: ${headset.sfreq}
+  window_size_seconds: 5
+  window_shift_seconds: 0.1
+  buffer_size_seconds: 60
+  bandpass:
+    low_cut: 1
+    high_cut: 30
+  notch: 50
+  target_frequencies: [4, 8, 10]
