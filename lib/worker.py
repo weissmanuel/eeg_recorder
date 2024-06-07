@@ -323,7 +323,6 @@ class RealTimeRecorder(RealTimeWorker):
             return self.get_stream_data(stream)
 
     def work(self, lock: Lock):
-        iteration = 0
         source_id = self.real_time_store.source_id
         stream = connect(source_id, self.real_time_store.stream_type, self.real_time_store.buffer_size_seconds)
 
@@ -338,8 +337,6 @@ class RealTimeRecorder(RealTimeWorker):
                     self.real_time_store.add_data(data)
                     self.lock.release()
                 time.sleep(1 if source_id == 'demo' else 0.01)
-                iteration += 1
-
 
 class RealTimeSSVEPDecoder(RealTimeWorker):
 
@@ -420,7 +417,6 @@ class RealTimeSSVEPDecoder(RealTimeWorker):
         return self.spectral_analysis(data, self.real_time_store.channel)
 
     def work(self, lock: Lock):
-        iteration: int = 0
 
         source_id = self.real_time_store.source_id
         self.logger.info(f"Start Real-Time SSVEP Decoding for Stream: {source_id}")
@@ -432,14 +428,15 @@ class RealTimeSSVEPDecoder(RealTimeWorker):
             if data is not None:
                 data = self.reshape_data(data)
                 x, y, max_freq = self.process_data(data)
-                print(max_freq)
+                print('Max frequency: %d' % max_freq, end='\r')
+                if self.real_time_store.head == self.real_time_store.buffer_size:
+                    print("Max Buffersize reached")
                 with open(f"./data/real_time/data.npy", 'wb') as f:
                     np.save(f, x)
                     np.save(f, y)
                     self.plot_store.set_data(x, y)
                     # print(y)
-            iteration += 1
-            time.sleep(1 / 10)
+            # time.sleep(1 / 20)
 
 
 class RealTimeVisualizer(RealTimeWorker):

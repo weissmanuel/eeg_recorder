@@ -36,8 +36,8 @@ preprocessors:
 
 #real_time: null
 real_time:
-#  source_id: ${headset.source_id}
-  source_id: 'demo'
+  source_id: ${headset.source_id}
+#  source_id: 'demo'
   stream_type: 'EEG'
   sfreq: ${headset.sfreq}
   channel: 0
@@ -45,7 +45,7 @@ real_time:
   window_shift_seconds: 0.1
   buffer_size_seconds: 60
   bandpass:
-    low_cut: 2
+    low_cut: 8
     high_cut: 20
   notch: 50
-  target_frequencies: [4, 8, 10]
+  target_frequencies: [4, 7, 8, 10, 13]
