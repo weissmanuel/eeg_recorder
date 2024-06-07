@@ -13,7 +13,7 @@ from mne import Info
 from lib.preprocess import get_preprocessors, Preprocessor
 from multiprocessing import Manager, Lock
 from lib.worker import RecordingWorker, PersistenceWorker, Worker, RealTimeRecorder, RealTimeWorker, RealTimeSSVEPDecoder
-from lib.store import StreamType, StreamStore, RecorderStore, RealTimeStore
+from lib.store import StreamType, StreamStore, RecorderStore, RealTimeStore, PlotStore
 from lib.persist import MneRawPersister, PersistingMode
 
 
@@ -76,6 +76,7 @@ class Recorder:
 
     recorder_store: RecorderStore
     real_time_store: RealTimeStore
+    plot_store: PlotStore | None = None
 
     safety_offset_seconds: float = 1.0
 
@@ -130,8 +131,9 @@ class Recorder:
     def initialise_real_time(self, config: DictConfig):
         if 'real_time' in config and config.real_time is not None:
             self.real_time_store = RealTimeStore.from_config(config.real_time, self.manager)
+            self.plot_store = PlotStore(self.manager, 'Test Plot', 'Frequencies', 'Amplitude')
             self.real_time_workers.append(RealTimeRecorder(self.lock, self.recorder_store, self.real_time_store))
-            self.real_time_workers.append(RealTimeSSVEPDecoder(self.lock, self.recorder_store, self.real_time_store))
+            self.real_time_workers.append(RealTimeSSVEPDecoder(self.lock, self.recorder_store, self.real_time_store, plot_store=self.plot_store))
             # self.real_time_workers.append(RealTimeVisualizer(self.recorder_store, self.real_time_store))
 
 

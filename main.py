@@ -20,7 +20,7 @@ def stop(recorder: Recorder, interface: Interface):
 @hydra.main(config_path="./config", config_name="config", version_base=None)
 def main(config: DictConfig):
     recorder = Recorder(sources=config.sources, buffer_size_seconds=config.buffer_size_seconds, config=config)
-    interface = Interface()
+    interface = Interface(plot_store=recorder.plot_store)
     interface.set_start_action(lambda: start(recorder, interface))
     interface.set_stop_action(lambda: stop(recorder, interface))
 

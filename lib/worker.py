@@ -11,7 +11,7 @@ from mne_lsl.lsl import local_clock
 from lib.utils import format_seconds
 from multiprocessing import Process
 from lib.lsl import connect, disconnect
-from lib.store import RecorderStore, StreamStore, RealTimeStore
+from lib.store import RecorderStore, StreamStore, RealTimeStore, PlotStore
 import time
 from omegaconf import DictConfig
 from lib.persist import Persister, PersistingMode, MneRawPersister
@@ -19,7 +19,7 @@ import numpy as np
 import threading
 from threading import Thread
 import scipy
-from scipy.signal import butter, lfilter
+from scipy.signal import butter, lfilter, iirnotch, filtfilt
 import matplotlib.pyplot as plt
 from typing import Tuple
 from multiprocessing import Lock
@@ -48,14 +48,13 @@ class Worker(ABC):
 
 
 class ProcessWorker(Worker):
-
     lock: Lock
 
     def __init__(self, lock: Lock):
         self.lock = lock
 
     def get_new_process(self):
-        return Process(target=self.work, args=(self.lock, ))
+        return Process(target=self.work, args=(self.lock,))
 
     def start(self):
         self.process.start()
@@ -253,7 +252,6 @@ class PersistenceWorker(ProcessWorker):
                  stream_stores: List[StreamStore],
                  persister: MneRawPersister
                  ):
-
         super().__init__(lock)
 
         self.interval = interval
@@ -280,7 +278,6 @@ class RealTimeWorker(ProcessWorker):
                  recorder_store: RecorderStore,
                  real_time_store: RealTimeStore
                  ):
-
         super().__init__(lock)
 
         self.recorder_store = recorder_store
@@ -299,7 +296,7 @@ class RealTimeRecorder(RealTimeWorker):
                  ):
         super().__init__(lock, recorder_store, real_time_store)
 
-        self.process: Thread = self.get_new_process()
+        self.process: Process = self.get_new_process()
 
     def prepare_data(self, data: ndarray) -> List:
         return (data.transpose()).tolist()
@@ -308,8 +305,7 @@ class RealTimeRecorder(RealTimeWorker):
     def generate_data(sample_frequency: float, num_channels: int = 2) -> ndarray:
         data = []
         timesteps = np.linspace(start=0.0, stop=1.0, num=int(sample_frequency), endpoint=False)
-        ch = lambda x: np.sin(2 * np.pi * 4 * x) + 0.5 * np.sin(2 * np.pi * 8 * x) + 0.3 * np.sin(
-            2 * np.pi * 10 * x) + 0.5 * np.sin(2 * np.pi * 20 * x)
+        ch = lambda x: np.sin(2 * np.pi * 10 * x) + 0.5 * np.sin(2 * np.pi * 8 * x) + 0.3 * np.sin(2 * np.pi * 10 * x) + 0.5 * np.sin(2 * np.pi * 35 * x) + np.sin(2 * np.pi * 50 * x)
         for i in range(num_channels):
             data.append([ch(t) for t in timesteps])
         return np.array(data)
@@ -350,19 +346,30 @@ class RealTimeSSVEPDecoder(RealTimeWorker):
     def __init__(self,
                  lock: Lock,
                  recorder_store: RecorderStore,
-                 real_time_store: RealTimeStore
+                 real_time_store: RealTimeStore,
+                 plot_store: PlotStore
                  ):
         super().__init__(lock, recorder_store, real_time_store)
 
-        self.process: Thread = self.get_new_process()
-        self.band_pass_coefficients = self.butter_bandpass()
+        self.plot_store = plot_store
 
-    def butter_bandpass(self, order=5):
+        self.process: Process = self.get_new_process()
+        self.notch_coefficients = self.init_notch()
+        self.band_pass_coefficients = self.init_bandpass()
+
+    def init_notch(self, notch: float = 50.0, qf: float = 5):
+        return iirnotch(notch, qf, self.real_time_store.sfreq)
+
+    def init_bandpass(self, order: int = 5):
         nyq = 0.5 * self.real_time_store.sfreq
         low = self.real_time_store.low_cut / nyq
         high = self.real_time_store.high_cut / nyq
         b, a = butter(order, [low, high], btype='band')
         return b, a
+
+    def notch_filter(self, data):
+        y = filtfilt(self.notch_coefficients[0], self.notch_coefficients[1], data, axis=1)
+        return y
 
     def butter_bandpass_filter(self, data):
         y = lfilter(self.band_pass_coefficients[0], self.band_pass_coefficients[1], data, axis=1)
@@ -372,15 +379,18 @@ class RealTimeSSVEPDecoder(RealTimeWorker):
         return data.transpose()
 
     def preprocess_data(self, data: ndarray) -> ndarray:
+        data = self.notch_filter(data)
         data = self.butter_bandpass_filter(data)
         return data
 
-    def spectral_analysis(self, data: ndarray) -> Tuple[ndarray, ndarray, float]:
+    def spectral_analysis(self, data: ndarray, channel: int = 0) -> Tuple[ndarray, ndarray, float]:
         band_width = 0.5
 
+        data = data[channel]
+
         num_samples = data.shape[-1]
-        fft_data = np.fft.fft(data, axis=1)
-        fft_magnitude = np.abs(fft_data[3])
+        fft_data = np.fft.fft(data)
+        fft_magnitude = np.abs(fft_data)
         frequencies = np.fft.fftfreq(num_samples, 1 / self.real_time_store.sfreq)
 
         max_magnitude = 0
@@ -400,13 +410,14 @@ class RealTimeSSVEPDecoder(RealTimeWorker):
                 most_prominent_frequency = target_frequency
 
         frequencies = frequencies[:num_samples // 2]
-        magnitudes = 2.0 / num_samples * np.abs(fft_data[:, :num_samples // 2])
+        magnitudes = 2.0 / num_samples * np.abs(fft_data[:num_samples // 2])
 
         return frequencies, magnitudes, most_prominent_frequency
 
     def process_data(self, data: ndarray) -> Tuple[ndarray, ndarray, float]:
+        # return np.array(range(len(data[0]))), data[0], 0
         data = self.preprocess_data(data)
-        return self.spectral_analysis(data)
+        return self.spectral_analysis(data, self.real_time_store.channel)
 
     def work(self, lock: Lock):
         iteration: int = 0
@@ -425,6 +436,7 @@ class RealTimeSSVEPDecoder(RealTimeWorker):
                 with open(f"./data/real_time/data.npy", 'wb') as f:
                     np.save(f, x)
                     np.save(f, y)
+                    self.plot_store.set_data(x, y)
                     # print(y)
             iteration += 1
             time.sleep(1 / 10)

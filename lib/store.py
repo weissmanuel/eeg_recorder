@@ -402,6 +402,7 @@ class RealTimeStore:
                  manager: Manager,
                  source_id: str,
                  stream_type: StreamType,
+                 channel: int,
                  sfreq: float,
                  window_size_seconds: float = 5,
                  window_shift_seconds: float = 0.1,
@@ -414,6 +415,7 @@ class RealTimeStore:
         self.source_id = source_id
         self.stream_type = stream_type
 
+        self.channel = channel
         self.sfreq = sfreq
         self.window_size_seconds = window_size_seconds
         self.window_shift_seconds = window_shift_seconds
@@ -439,6 +441,7 @@ class RealTimeStore:
             manager=manager,
             source_id=config.source_id,
             stream_type=StreamType.from_str(config.stream_type),
+            channel=config.channel,
             sfreq=config.sfreq,
             window_size_seconds=config.window_size_seconds,
             window_shift_seconds=config.window_shift_seconds,
@@ -501,3 +504,39 @@ class RealTimeStore:
         self.update_n_new_samples(-self.window_shift)
         assert len(data) == self.window_size
         return np.array(data)
+
+
+class PlotStore:
+
+    def __init__(self, manager: Manager, name: str, x_label: str, y_label: str):
+
+        self.name = name
+        self.x_label = x_label
+        self.y_label = y_label
+
+        self._x = manager.list()
+        self._y = manager.list()
+
+    @property
+    def x(self) -> List:
+        return list(self._x)
+
+    @x.setter
+    def x(self, value: List) -> None:
+        self._x[:] = value
+
+    @property
+    def y(self) -> List:
+        return list(self._y)
+
+    @y.setter
+    def y(self, value: List) -> None:
+        self._y[:] = value
+
+    def get_data(self):
+        return self.x, self.y
+
+    def set_data(self, x: any, y: any):
+        self.x = x
+        self.y = y
+

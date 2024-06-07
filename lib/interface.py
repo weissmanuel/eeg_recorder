@@ -11,7 +11,8 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
 from matplotlib import style
 from matplotlib import animation
-from lib.store import RealTimeStore
+from lib.store import RealTimeStore, PlotStore
+import copy
 
 style.use("ggplot")
 
@@ -113,8 +114,10 @@ class Body(ctk.CTkFrame):
 
 class Footer(ctk.CTkFrame):
 
-    def __init__(self, parent):
+    def __init__(self, parent, plot_store: PlotStore = None):
         super().__init__(parent)
+
+        self.plot_store = plot_store
 
         self.grid(row=2, column=0, sticky='nsew', padx=10, pady=20)
 
@@ -133,7 +136,7 @@ class Footer(ctk.CTkFrame):
         self.ax.plot(np.random.rand(10))
         self.canvas = FigureCanvasTkAgg(self.figure, self)
         self.canvas.get_tk_widget().grid(row=6, column=0, pady=10, padx=10, sticky='nsew')
-        self.animation = animation.FuncAnimation(self.figure, func=self.update_graph, interval=100, cache_frame_data=False)
+        self.animation = animation.FuncAnimation(self.figure, func=self.update_graph, interval=50, cache_frame_data=False)
 
     def update_info(self, info: RecordingInfo):
         self.start_time.update_value(str(info.start_time))
@@ -141,14 +144,24 @@ class Footer(ctk.CTkFrame):
         self.duration.update_value(str(info.duration))
         self.file_path.update_value(str(info.file_path))
 
+    # def update_graph(self, i):
+    #     try:
+    #         with open("./data/real_time/data.npy", "rb") as f:
+    #             x = np.load(f)
+    #             y = np.load(f)
+    #             y = y[0, :]
+    #             self.ax.clear()
+    #             self.ax.plot(x, y)
+    #     except Exception as e:
+    #         pass
+
     def update_graph(self, i):
         try:
-            with open("./data/real_time/data.npy", "rb") as f:
-                x = np.load(f)
-                y = np.load(f)
-                y = y[0, :]
+            if self.plot_store is not None:
+                x, y = copy.deepcopy(self.plot_store.get_data())
                 self.ax.clear()
                 self.ax.plot(x, y)
+
         except Exception as e:
             pass
 
@@ -162,8 +175,13 @@ class Footer(ctk.CTkFrame):
 
 class Interface(ctk.CTk):
 
-    def __init__(self, geometry: str = '600x700', real_time_store: RealTimeStore | None = None):
+    plot_store: PlotStore | None = None
+
+    def __init__(self, geometry: str = '600x700', plot_store: PlotStore = None):
         super().__init__()
+
+        self.plot_store = plot_store
+
         ctk.set_appearance_mode("dark")
         self.title("EEG Recorder")
         self.geometry(geometry)
@@ -177,7 +195,7 @@ class Interface(ctk.CTk):
 
         self.header = Header(self.root)
         self.body = Body(self.root)
-        self.footer = Footer(self.root)
+        self.footer = Footer(self.root, self.plot_store)
 
         # self.graph_view = ctk.CTkToplevel(self)
 
