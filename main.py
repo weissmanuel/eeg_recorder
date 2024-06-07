@@ -25,6 +25,7 @@ def main(config: DictConfig):
     interface.set_stop_action(lambda: stop(recorder, interface))
 
     interface.run()
+    recorder.kill()
     interface.stop()
     print("Stopped Interface...")
 

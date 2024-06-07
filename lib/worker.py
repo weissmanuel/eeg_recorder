@@ -428,15 +428,17 @@ class RealTimeSSVEPDecoder(RealTimeWorker):
             if data is not None:
                 data = self.reshape_data(data)
                 x, y, max_freq = self.process_data(data)
-                print('Max frequency: %d' % max_freq, end='\r')
-                if self.real_time_store.head == self.real_time_store.buffer_size:
-                    print("Max Buffersize reached")
+                print('Max frequency: %d' % max_freq)
+                print('Head: %d' % self.real_time_store.head)
+                print(f'Data: {data.shape}')
                 with open(f"./data/real_time/data.npy", 'wb') as f:
                     np.save(f, x)
                     np.save(f, y)
                     self.plot_store.set_data(x, y)
                     # print(y)
-            # time.sleep(1 / 20)
+            else:
+                print('No data')
+            time.sleep(1 / 20)
 
 
 class RealTimeVisualizer(RealTimeWorker):

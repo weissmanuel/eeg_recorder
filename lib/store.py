@@ -10,6 +10,7 @@ from omegaconf import DictConfig
 from .buffer import RingBuffer
 from collections import deque
 import copy
+from memory_profiler import profile
 
 
 class StreamType(Enum):
@@ -523,6 +524,7 @@ class PlotStore:
 
     @x.setter
     def x(self, value: List) -> None:
+        del self._x[:]
         self._x[:] = value
 
     @property

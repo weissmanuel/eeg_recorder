@@ -176,6 +176,13 @@ class Recorder:
             self.summary()
             self.logger.info("Recording Stopped")
 
+    def kill(self):
+        for worker in self.get_workers():
+            try:
+                worker.stop()
+            except Exception as e:
+                pass
+
     def get_signal_recorder(self) -> RecordingWorker:
         return next((recorder for recorder in self.recorders if recorder.stream_type.is_signal), None)
 

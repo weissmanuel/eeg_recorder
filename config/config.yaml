@@ -36,8 +36,8 @@ preprocessors:
 
 #real_time: null
 real_time:
-  source_id: ${headset.source_id}
-#  source_id: 'demo'
+#  source_id: ${headset.source_id}
+  source_id: 'demo'
   stream_type: 'EEG'
   sfreq: ${headset.sfreq}
   channel: 0

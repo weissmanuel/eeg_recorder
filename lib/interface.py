@@ -167,8 +167,7 @@ class Footer(ctk.CTkFrame):
 
     def stop(self):
         try:
-            print("stop")
-            self.animation.event_source.stop()
+            self.animation.pause()
         except Exception:
             pass
 
@@ -200,11 +199,11 @@ class Interface(ctk.CTk):
         # self.graph_view = ctk.CTkToplevel(self)
 
     def set_start_action(self, start_action: Callable) -> 'Interface':
-        self.header.start_button.configure(command=start_action)
+        self.header.start_button.configure(command=lambda: self.after(10, start_action))
         return self
 
     def set_stop_action(self, stop_action: Callable) -> 'Interface':
-        self.header.stop_button.configure(command=stop_action)
+        self.header.stop_button.configure(command=lambda: self.after(10, stop_action))
         return self
 
     def set_status(self, text: str) -> 'Interface':
@@ -230,4 +229,8 @@ class Interface(ctk.CTk):
         self.mainloop()
 
     def stop(self):
-        self.footer.stop()
+        try:
+            self.footer.stop()
+            self.destroy()
+        except Exception as e:
+            pass
