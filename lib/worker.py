@@ -1,3 +1,4 @@
+import copy
 from abc import ABC, abstractmethod
 from .store import StreamStore, RecorderStore, StreamType
 import time
@@ -23,6 +24,8 @@ from scipy.signal import butter, lfilter, iirnotch, filtfilt
 import matplotlib.pyplot as plt
 from typing import Tuple
 from multiprocessing import Lock
+import dearpygui.dearpygui as dpg
+from math import sin, cos
 
 
 class Worker(ABC):
@@ -305,7 +308,8 @@ class RealTimeRecorder(RealTimeWorker):
     def generate_data(sample_frequency: float, num_channels: int = 2) -> ndarray:
         data = []
         timesteps = np.linspace(start=0.0, stop=1.0, num=int(sample_frequency), endpoint=False)
-        ch = lambda x: np.sin(2 * np.pi * 10 * x) + 0.5 * np.sin(2 * np.pi * 8 * x) + 0.3 * np.sin(2 * np.pi * 10 * x) + 0.5 * np.sin(2 * np.pi * 35 * x) + np.sin(2 * np.pi * 50 * x)
+        ch = lambda x: np.sin(2 * np.pi * 10 * x) + 0.5 * np.sin(2 * np.pi * 8 * x) + 0.3 * np.sin(
+            2 * np.pi * 10 * x) + 0.5 * np.sin(2 * np.pi * 35 * x) + np.sin(2 * np.pi * 50 * x)
         for i in range(num_channels):
             data.append([ch(t) for t in timesteps])
         return np.array(data)
@@ -337,6 +341,7 @@ class RealTimeRecorder(RealTimeWorker):
                     self.real_time_store.add_data(data)
                     self.lock.release()
                 time.sleep(1 if source_id == 'demo' else 0.01)
+
 
 class RealTimeSSVEPDecoder(RealTimeWorker):
 
@@ -446,50 +451,59 @@ class RealTimeVisualizer(RealTimeWorker):
     def __init__(self,
                  lock: Lock,
                  recorder_store: RecorderStore,
-                 real_time_store: RealTimeStore
+                 real_time_store: RealTimeStore,
+                 plot_store: PlotStore
                  ):
         super().__init__(lock, recorder_store, real_time_store)
 
         self.process: Thread = self.get_new_process()
-        self.band_pass_coefficients = self.butter_bandpass(1, 6, 250, 5)
-
-    def butter_bandpass(self, lowcut, highcut, fs, order=5):
-        nyq = 0.5 * fs
-        low = lowcut / nyq
-        high = highcut / nyq
-        b, a = butter(order, [low, high], btype='band')
-        return b, a
-
-    def butter_bandpass_filter(self, data):
-        y = lfilter(self.band_pass_coefficients[0], self.band_pass_coefficients[1], data, axis=1)
-        return y
-
-    def reshape_data(self, data: ndarray) -> ndarray:
-        return data.transpose()
-
-    def preprocess_data(self, data: ndarray) -> ndarray:
-        data = self.butter_bandpass_filter(data)
-        return data
-
-    def spectral_analysis(self, data: ndarray) -> ndarray:
-        data = np.fft.fft(data, axis=1)
-        return data
-
-    def process_data(self, data: ndarray) -> ndarray:
-        data = self.preprocess_data(data)
-        return data
+        self.plot_store = plot_store
+        self.plotting: bool = False
 
     def work(self, lock: Lock):
-        iteration: int = 0
+        dpg.create_context()
 
-        while self.recorder_store.is_recording:
-            data = self.real_time_store.get_data()
-            if data is not None:
-                data = self.reshape_data(data)
-                data = self.process_data(data)
-                x = np.arange(data.shape[-1])
-                with open(f"./data/real_time/data.npy", 'wb') as f:
-                    np.save(f, x)
-                    np.save(f, data)
-            iteration += 1
-            time.sleep(1 / 10)
+        sindatax = []
+        sindatay = []
+
+        for i in range(0, 500):
+            sindatax.append(i / 1000)
+            sindatay.append(0.5 + 0.5 * sin(50 * i / 1000))
+
+        def update_series():
+            self.last_y_max = 0
+            while dpg.is_dearpygui_running() and self.recorder_store.is_recording:
+                x, y = copy.copy(self.plot_store.get_data())
+                if x is not None and y is not None and len(x) > 0 and len(y) > 0:
+                    y_max = np.max(y)
+                    if y_max > self.last_y_max * 1.1 or y_max < self.last_y_max * 0.9:
+                        self.last_y_max = y_max
+                        dpg.set_axis_limits("y_axis", 0, y_max * 1.1)
+                    dpg.set_value('series_tag', [self.plot_store.x, self.plot_store.y])
+                    dpg.set_item_label('series_tag', "0.5 + 0.5 * cos(x)")
+                time.sleep(0.1)
+
+        with dpg.window(label="Tutorial", tag="win"):
+            dpg.add_button(label="Update Series", callback=update_series)
+            # create plot
+            with dpg.plot(label="Line Series", height=400, width=400):
+                # optionally create legend
+                dpg.add_plot_legend()
+
+                # REQUIRED: create x and y axes
+                dpg.add_plot_axis(dpg.mvXAxis, label="x", tag='x_axis')
+                dpg.set_axis_limits("x_axis", 0, 125)
+                dpg.add_plot_axis(dpg.mvYAxis, label="y", tag="y_axis")
+
+                # series belong to a y-axis
+                dpg.add_line_series(self.plot_store.x, self.plot_store.x, label="0.5 + 0.5 * sin(x)", parent="y_axis",
+                                    tag="series_tag")
+
+        thread = threading.Thread(target=update_series)
+        thread.start()
+
+        dpg.create_viewport(title='Custom Title', width=800, height=600)
+        dpg.setup_dearpygui()
+        dpg.show_viewport()
+        dpg.start_dearpygui()
+        dpg.destroy_context()

@@ -136,7 +136,7 @@ class Footer(ctk.CTkFrame):
         self.ax.plot(np.random.rand(10))
         self.canvas = FigureCanvasTkAgg(self.figure, self)
         self.canvas.get_tk_widget().grid(row=6, column=0, pady=10, padx=10, sticky='nsew')
-        self.animation = animation.FuncAnimation(self.figure, func=self.update_graph, interval=50, cache_frame_data=False)
+        # self.animation = animation.FuncAnimation(self.figure, func=self.update_graph, interval=50, cache_frame_data=False)
 
     def update_info(self, info: RecordingInfo):
         self.start_time.update_value(str(info.start_time))

@@ -12,7 +12,7 @@ from lib.utils import config_to_primitive
 from mne import Info
 from lib.preprocess import get_preprocessors, Preprocessor
 from multiprocessing import Manager, Lock
-from lib.worker import RecordingWorker, PersistenceWorker, Worker, RealTimeRecorder, RealTimeWorker, RealTimeSSVEPDecoder
+from lib.worker import RecordingWorker, PersistenceWorker, Worker, RealTimeRecorder, RealTimeWorker, RealTimeSSVEPDecoder, RealTimeVisualizer
 from lib.store import StreamType, StreamStore, RecorderStore, RealTimeStore, PlotStore
 from lib.persist import MneRawPersister, PersistingMode
 
@@ -134,7 +134,7 @@ class Recorder:
             self.plot_store = PlotStore(self.manager, 'Test Plot', 'Frequencies', 'Amplitude')
             self.real_time_workers.append(RealTimeRecorder(self.lock, self.recorder_store, self.real_time_store))
             self.real_time_workers.append(RealTimeSSVEPDecoder(self.lock, self.recorder_store, self.real_time_store, plot_store=self.plot_store))
-            # self.real_time_workers.append(RealTimeVisualizer(self.recorder_store, self.real_time_store))
+            self.real_time_workers.append(RealTimeVisualizer(self.lock, self.recorder_store, self.real_time_store, self.plot_store))
 
 
 
