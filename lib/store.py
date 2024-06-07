@@ -9,6 +9,7 @@ import copy
 from omegaconf import DictConfig
 from .buffer import RingBuffer
 from collections import deque
+import copy
 
 
 class StreamType(Enum):
@@ -428,6 +429,8 @@ class RealTimeStore:
         self._buffer = manager.list([0] * self.buffer_size)
         self._n_new_samples = manager.Value('i', 0)
 
+        self.lock = manager.Lock()
+
         self.target_frequencies = target_frequencies if target_frequencies is not None else []
 
     @staticmethod
@@ -470,8 +473,10 @@ class RealTimeStore:
         return self.n_new_samples
 
     def extend(self, data: List[float]):
+        self.lock.acquire()
         self._buffer.extend(data)
         del self._buffer[:-self.buffer_size]
+        self.lock.release()
 
     def add_data(self, data: List[float | List[float]]):
         num_samples = len(data)
@@ -484,7 +489,15 @@ class RealTimeStore:
     def get_data(self) -> ndarray | None:
         if not self.has_new_data():
             return None
-        data = self._buffer[self.buffer_size - self.head:self.buffer_size - self.tail]
+
+        # print("N new samples: ", self.n_new_samples)
+        # print("Buffer Size: ", self.buffer_size)
+        # print("Window Size: ", self.window_size)
+        # print("Head: ", self.head)
+        # print("Tail: ", self.tail)
+        # print("Diff: ", self.head - self.tail)
+
+        data = copy.copy(self._buffer[self.buffer_size - self.head:self.buffer_size - self.tail])
         self.update_n_new_samples(-self.window_shift)
         assert len(data) == self.window_size
         return np.array(data)

@@ -22,6 +22,7 @@ import scipy
 from scipy.signal import butter, lfilter
 import matplotlib.pyplot as plt
 from typing import Tuple
+from multiprocessing import Lock
 
 
 class Worker(ABC):
@@ -42,14 +43,19 @@ class Worker(ABC):
         pass
 
     @abstractmethod
-    def work(self):
+    def work(self, lock: Lock):
         pass
 
 
 class ProcessWorker(Worker):
 
+    lock: Lock
+
+    def __init__(self, lock: Lock):
+        self.lock = lock
+
     def get_new_process(self):
-        return Process(target=self.work)
+        return Process(target=self.work, args=(self.lock, ))
 
     def start(self):
         self.process.start()
@@ -63,7 +69,7 @@ class ProcessWorker(Worker):
         self.process = self.get_new_process()
 
     @abstractmethod
-    def work(self):
+    def work(self, lock: Lock):
         pass
 
 
@@ -83,7 +89,7 @@ class ThreadWorker(Worker):
         self.process = self.get_new_process()
 
     @abstractmethod
-    def work(self):
+    def work(self, lock: Lock):
         pass
 
 
@@ -94,10 +100,13 @@ class RecordingWorker(ProcessWorker):
     buffer_size_seconds: float
 
     def __init__(self,
+                 lock: Lock,
                  recorder_store: RecorderStore,
                  stream_store: StreamStore,
                  buffer_size_seconds: float
                  ):
+
+        super().__init__(lock)
 
         self.recorder_store = recorder_store
         self.stream_store = stream_store
@@ -180,7 +189,7 @@ class RecordingWorker(ProcessWorker):
             offset = self.stream_store.current_time - self.stream_store.last_sample_lsl_seconds
             return self.recorder_store.is_recording or offset < self.stream_store.safety_offset_seconds
 
-    def work(self):
+    def work(self, lock: Lock):
 
         stream = connect(self.stream_store.source_id, self.stream_store.stream_type, self.buffer_size_seconds)
 
@@ -238,11 +247,15 @@ class RecordingWorker(ProcessWorker):
 class PersistenceWorker(ProcessWorker):
 
     def __init__(self,
+                 lock: Lock,
                  interval: int,
                  recorder_store: RecorderStore,
                  stream_stores: List[StreamStore],
                  persister: MneRawPersister
                  ):
+
+        super().__init__(lock)
+
         self.interval = interval
 
         self.recorder_store = recorder_store
@@ -252,7 +265,7 @@ class PersistenceWorker(ProcessWorker):
 
         self.process = self.get_new_process()
 
-    def work(self):
+    def work(self, lock: Lock):
         while self.recorder_store.is_recording:
             time.sleep(self.interval)
             self.recorder_store.pause_recording()
@@ -263,23 +276,28 @@ class PersistenceWorker(ProcessWorker):
 class RealTimeWorker(ProcessWorker):
 
     def __init__(self,
+                 lock: Lock,
                  recorder_store: RecorderStore,
                  real_time_store: RealTimeStore
                  ):
+
+        super().__init__(lock)
+
         self.recorder_store = recorder_store
         self.real_time_store = real_time_store
 
-    def work(self):
+    def work(self, lock: Lock):
         pass
 
 
 class RealTimeRecorder(RealTimeWorker):
 
     def __init__(self,
+                 lock: Lock,
                  recorder_store: RecorderStore,
                  real_time_store: RealTimeStore
                  ):
-        super().__init__(recorder_store, real_time_store)
+        super().__init__(lock, recorder_store, real_time_store)
 
         self.process: Thread = self.get_new_process()
 
@@ -308,7 +326,7 @@ class RealTimeRecorder(RealTimeWorker):
         else:
             return self.get_stream_data(stream)
 
-    def work(self):
+    def work(self, lock: Lock):
         iteration = 0
         source_id = self.real_time_store.source_id
         stream = connect(source_id, self.real_time_store.stream_type, self.real_time_store.buffer_size_seconds)
@@ -320,7 +338,9 @@ class RealTimeRecorder(RealTimeWorker):
                 data = self.get_data(stream)
                 if data is not None:
                     data = self.prepare_data(data)
+                    self.lock.acquire()
                     self.real_time_store.add_data(data)
+                    self.lock.release()
                 time.sleep(1 if source_id == 'demo' else 0.01)
                 iteration += 1
 
@@ -328,10 +348,11 @@ class RealTimeRecorder(RealTimeWorker):
 class RealTimeSSVEPDecoder(RealTimeWorker):
 
     def __init__(self,
+                 lock: Lock,
                  recorder_store: RecorderStore,
                  real_time_store: RealTimeStore
                  ):
-        super().__init__(recorder_store, real_time_store)
+        super().__init__(lock, recorder_store, real_time_store)
 
         self.process: Thread = self.get_new_process()
         self.band_pass_coefficients = self.butter_bandpass()
@@ -359,7 +380,7 @@ class RealTimeSSVEPDecoder(RealTimeWorker):
 
         num_samples = data.shape[-1]
         fft_data = np.fft.fft(data, axis=1)
-        fft_magnitude = np.abs(fft_data[0])
+        fft_magnitude = np.abs(fft_data[3])
         frequencies = np.fft.fftfreq(num_samples, 1 / self.real_time_store.sfreq)
 
         max_magnitude = 0
@@ -387,14 +408,16 @@ class RealTimeSSVEPDecoder(RealTimeWorker):
         data = self.preprocess_data(data)
         return self.spectral_analysis(data)
 
-    def work(self):
+    def work(self, lock: Lock):
         iteration: int = 0
 
         source_id = self.real_time_store.source_id
         self.logger.info(f"Start Real-Time SSVEP Decoding for Stream: {source_id}")
 
         while self.recorder_store.is_recording:
+            self.lock.acquire()
             data = self.real_time_store.get_data()
+            self.lock.release()
             if data is not None:
                 data = self.reshape_data(data)
                 x, y, max_freq = self.process_data(data)
@@ -402,6 +425,7 @@ class RealTimeSSVEPDecoder(RealTimeWorker):
                 with open(f"./data/real_time/data.npy", 'wb') as f:
                     np.save(f, x)
                     np.save(f, y)
+                    # print(y)
             iteration += 1
             time.sleep(1 / 10)
 
@@ -409,10 +433,11 @@ class RealTimeSSVEPDecoder(RealTimeWorker):
 class RealTimeVisualizer(RealTimeWorker):
 
     def __init__(self,
+                 lock: Lock,
                  recorder_store: RecorderStore,
                  real_time_store: RealTimeStore
                  ):
-        super().__init__(recorder_store, real_time_store)
+        super().__init__(lock, recorder_store, real_time_store)
 
         self.process: Thread = self.get_new_process()
         self.band_pass_coefficients = self.butter_bandpass(1, 6, 250, 5)
@@ -443,7 +468,7 @@ class RealTimeVisualizer(RealTimeWorker):
         data = self.preprocess_data(data)
         return data
 
-    def work(self):
+    def work(self, lock: Lock):
         iteration: int = 0
 
         while self.recorder_store.is_recording:

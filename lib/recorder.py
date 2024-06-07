@@ -11,7 +11,7 @@ from omegaconf import DictConfig
 from lib.utils import config_to_primitive
 from mne import Info
 from lib.preprocess import get_preprocessors, Preprocessor
-from multiprocessing import Manager
+from multiprocessing import Manager, Lock
 from lib.worker import RecordingWorker, PersistenceWorker, Worker, RealTimeRecorder, RealTimeWorker, RealTimeSSVEPDecoder
 from lib.store import StreamType, StreamStore, RecorderStore, RealTimeStore
 from lib.persist import MneRawPersister, PersistingMode
@@ -98,6 +98,7 @@ class Recorder:
         self.buffer_size_seconds = buffer_size_seconds
 
         self.manager = Manager()
+        self.lock = Lock()
         # self.persister = MneRawPersister(config=config)
         self.persister = None
         self.initialise_recorders()
@@ -111,7 +112,7 @@ class Recorder:
             source_id, stream_type = source
             stream_type = StreamType.from_str(stream_type)
             stream_store = StreamStore(self.manager, source_id, stream_type)
-            recorder = RecordingWorker(self.recorder_store, stream_store, self.buffer_size_seconds)
+            recorder = RecordingWorker(self.lock, self.recorder_store, stream_store, self.buffer_size_seconds)
             self.recorders.append(recorder)
 
     def initialise_persisters(self, config: DictConfig):
@@ -119,7 +120,8 @@ class Recorder:
             stream_stores = [recorder.stream_store for recorder in self.recorders]
             for persister_config in config.persister_workers:
 
-                persister_worker = PersistenceWorker(interval=persister_config.interval,
+                persister_worker = PersistenceWorker(lock=self.lock,
+                                                     interval=persister_config.interval,
                                                      recorder_store=self.recorder_store,
                                                      stream_stores=stream_stores,
                                                      persister=self.persister)
@@ -128,8 +130,8 @@ class Recorder:
     def initialise_real_time(self, config: DictConfig):
         if 'real_time' in config and config.real_time is not None:
             self.real_time_store = RealTimeStore.from_config(config.real_time, self.manager)
-            self.real_time_workers.append(RealTimeRecorder(self.recorder_store, self.real_time_store))
-            self.real_time_workers.append(RealTimeSSVEPDecoder(self.recorder_store, self.real_time_store))
+            self.real_time_workers.append(RealTimeRecorder(self.lock, self.recorder_store, self.real_time_store))
+            self.real_time_workers.append(RealTimeSSVEPDecoder(self.lock, self.recorder_store, self.real_time_store))
             # self.real_time_workers.append(RealTimeVisualizer(self.recorder_store, self.real_time_store))
 
 
