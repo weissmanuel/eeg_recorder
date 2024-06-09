@@ -1,0 +1,16 @@
+
+
+source_id: 'demo'
+n_channels: 2
+channel_names: ['Fz', 'Cz']
+channel_types: ['eeg', 'eeg']
+sfreq: 250
+montage: 'standard_1020'
+
+channel_names_mapping:
+  '0': 'Fz'
+  '2': 'Cz'
+
+channel_types_mapping:
+  Fz: 'eeg'
+  Cz: 'eeg'

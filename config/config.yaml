@@ -1,7 +1,7 @@
 
 
 defaults:
-  - headset: unicorn
+  - headset: demo
   - _self_
 
 sources: []
@@ -28,6 +28,7 @@ persister_workers: null
 #  - name: 'default'
 #    interval: 30
 
+#preprocessors: []
 preprocessors:
   - name: 'eeg_scaler'
     scale: 1e-6

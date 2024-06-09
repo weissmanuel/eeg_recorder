@@ -1,7 +1,7 @@
 import mne
 from mne import Info
 from mne.io import RawArray
-from lib.preprocess import get_preprocessors, Preprocessor
+from lib.preprocess.data_preprocess import get_preprocessors, Preprocessor
 from numpy import ndarray
 from lib.utils import config_to_primitive
 from omegaconf import DictConfig
@@ -12,6 +12,7 @@ from pathlib import Path
 import logging
 from datetime import timezone
 from enum import Enum
+
 
 class PersistingMode(Enum):
     REPLACE = "REPLACE"
@@ -64,7 +65,7 @@ class MneRawPersister(Persister):
         preprocessors: List[Preprocessor] = get_preprocessors(self.config.preprocessors)
         if preprocessors is not None and len(preprocessors) > 0:
             for preprocessor in preprocessors:
-                data = preprocessor(info, data)
+                data = preprocessor(data, info=info)
         return data
 
     def add_annotations(self,

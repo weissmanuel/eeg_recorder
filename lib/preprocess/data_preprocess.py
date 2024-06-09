@@ -17,7 +17,7 @@ class Preprocessor:
     def __init__(self, name: str):
         self.name = name
 
-    def __call__(self, info: Info, signal: ndarray, *args, **kwargs) -> ndarray:
+    def __call__(self, signal: ndarray, *args, **kwargs) -> ndarray:
         pass
 
 
@@ -33,7 +33,9 @@ class EEGScaler(Preprocessor):
         else:
             self.channel_types = channel_types
 
-    def __call__(self, info: Info, signal: ndarray, *args, **kwargs) -> ndarray:
+    def __call__(self, signal: ndarray, *args, **kwargs) -> ndarray:
+        info: Info | None = kwargs.get('info', None)
+        assert info is not None, 'info must be provided for EEGScaler'
         ch_idx = [i for i, ch_type in enumerate(info.get_channel_types()) if ch_type in self.channel_types]
         if len(ch_idx) > 0:
             signal[ch_idx] = signal[ch_idx] * self.scale

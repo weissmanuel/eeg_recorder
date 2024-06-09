@@ -26,6 +26,14 @@ from typing import Tuple
 from multiprocessing import Lock
 import dearpygui.dearpygui as dpg
 from math import sin, cos
+from lib.mne import create_raw, create_info
+from omegaconf import DictConfig
+from mne.io import RawArray
+import mne
+from mne import Info
+from lib.preprocess.pipeline import CustomScaler
+from lib.preprocess.data_preprocess import get_preprocessors, Preprocessor
+from sklearn.preprocessing import MinMaxScaler
 
 
 class Worker(ABC):
@@ -349,7 +357,8 @@ class RealTimeSSVEPDecoder(RealTimeWorker):
                  lock: Lock,
                  recorder_store: RecorderStore,
                  real_time_store: RealTimeStore,
-                 plot_store: PlotStore
+                 plot_store: PlotStore,
+                 config: DictConfig
                  ):
         super().__init__(lock, recorder_store, real_time_store)
 
@@ -358,6 +367,8 @@ class RealTimeSSVEPDecoder(RealTimeWorker):
         self.process: Process = self.get_new_process()
         self.notch_coefficients = self.init_notch()
         self.band_pass_coefficients = self.init_bandpass()
+
+        self.config = config
 
     def init_notch(self, notch: float = 50.0, qf: float = 5):
         return iirnotch(notch, qf, self.real_time_store.sfreq)
@@ -380,10 +391,32 @@ class RealTimeSSVEPDecoder(RealTimeWorker):
     def reshape_data(self, data: ndarray) -> ndarray:
         return data.transpose()
 
-    def preprocess_data(self, data: ndarray) -> ndarray:
-        data = self.notch_filter(data)
-        data = self.butter_bandpass_filter(data)
+    def preprocess(self, info: Info, data: ndarray) -> ndarray:
+        preprocessors: List[Preprocessor] = get_preprocessors(self.config.preprocessors)
+        if preprocessors is not None and len(preprocessors) > 0:
+            for preprocessor in preprocessors:
+                data = preprocessor(data, info=info)
         return data
+
+    def preprocess_raw(self, raw: RawArray) -> RawArray:
+        raw = raw.notch_filter(freqs=50)
+        raw = raw.filter(l_freq=self.real_time_store.low_cut, h_freq=self.real_time_store.high_cut)
+        return raw
+
+    def preprocess_data(self, data: ndarray) -> ndarray:
+        info = create_info(self.config)
+        data = self.preprocess(info=info, data=data)
+        raw = create_raw(data=data, info=info)
+        raw = self.preprocess_raw(raw)
+        data = raw.get_data()
+        # scaler = MinMaxScaler()
+        # data = scaler.fit_transform(data)
+        return data
+
+    # def preprocess_data(self, data: ndarray) -> ndarray:
+    #     data = self.notch_filter(data)
+    #     data = self.butter_bandpass_filter(data)
+    #     return data
 
     def spectral_analysis(self, data: ndarray, channel: int = 0) -> Tuple[ndarray, ndarray, float]:
         band_width = 0.5
@@ -416,6 +449,12 @@ class RealTimeSSVEPDecoder(RealTimeWorker):
 
         return frequencies, magnitudes, most_prominent_frequency
 
+    def to_mne_raw(self, data: ndarray, sfreq: float, ch_names: List[str], ch_types: List[str]) -> mne.io.RawArray:
+        data = data.transpose()
+        info = mne.create_info(ch_names=ch_names, sfreq=sfreq, ch_types=ch_types)
+        raw = mne.io.RawArray(data, info)
+        return raw
+
     def process_data(self, data: ndarray) -> Tuple[ndarray, ndarray, float]:
         # return np.array(range(len(data[0]))), data[0], 0
         data = self.preprocess_data(data)
@@ -434,15 +473,16 @@ class RealTimeSSVEPDecoder(RealTimeWorker):
                 data = self.reshape_data(data)
                 x, y, max_freq = self.process_data(data)
                 print('Max frequency: %d' % max_freq)
-                print('Head: %d' % self.real_time_store.head)
-                print(f'Data: {data.shape}')
+                # print('Head: %d' % self.real_time_store.head)
+                # print(f'Data: {data.shape}')
                 with open(f"./data/real_time/data.npy", 'wb') as f:
                     np.save(f, x)
                     np.save(f, y)
                     self.plot_store.set_data(x, y)
                     # print(y)
             else:
-                print('No data')
+                # print('No data')
+                pass
             time.sleep(1 / 20)
 
 
