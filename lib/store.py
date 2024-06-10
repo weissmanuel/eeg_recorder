@@ -10,7 +10,6 @@ from omegaconf import DictConfig
 from .buffer import RingBuffer
 from collections import deque
 import copy
-from memory_profiler import profile
 
 
 class StreamType(Enum):
@@ -509,36 +508,70 @@ class RealTimeStore:
 
 class PlotStore:
 
-    def __init__(self, manager: Manager, name: str, x_label: str, y_label: str):
+    def __init__(self, manager: Manager):
 
-        self.name = name
-        self.x_label = x_label
-        self.y_label = y_label
+        self._x_time = manager.list()
+        self._y_time = manager.list()
 
-        self._x = manager.list()
-        self._y = manager.list()
+        self._x_freq = manager.list()
+        self._y_freq = manager.list()
 
-    @property
-    def x(self) -> List:
-        return list(self._x)
-
-    @x.setter
-    def x(self, value: List) -> None:
-        del self._x[:]
-        self._x[:] = value
+        self._result = manager.Value('d', 0.0)
 
     @property
-    def y(self) -> List:
-        return list(self._y)
+    def x_time(self) -> List:
+        return list(self._x_time)
 
-    @y.setter
-    def y(self, value: List) -> None:
-        self._y[:] = value
+    @x_time.setter
+    def x_time(self, value: List) -> None:
+        self._x_time[:] = value
 
-    def get_data(self):
-        return self.x, self.y
+    @property
+    def y_time(self) -> List:
+        return list(self._y_time)
 
-    def set_data(self, x: any, y: any):
-        self.x = x
-        self.y = y
+    @y_time.setter
+    def y_time(self, value: List) -> None:
+        self._y_time[:] = value
+
+    def get_time_data(self):
+        return self.x_time, self.y_time
+
+    def set_time_data(self, x: any, y: any):
+        self.x_time = x
+        self.y_time = y
+
+    @property
+    def x_freq(self) -> List:
+        return list(self._x_freq)
+
+    @x_freq.setter
+    def x_freq(self, value: List) -> None:
+        self._x_freq[:] = value
+
+    @property
+    def y_freq(self) -> List:
+        return list(self._y_freq)
+
+    @y_freq.setter
+    def y_freq(self, value: List) -> None:
+        self._y_freq[:] = value
+
+    def get_freq_data(self) -> Tuple[List, List, float]:
+        return self.x_freq, self.y_freq, self.result
+
+    def set_freq_data(self, x: any, y: any, result: Union[float, None] = None):
+        self.x_freq = x
+        self.y_freq = y
+        if result is not None:
+            self.result = result
+
+    @property
+    def result(self):
+        return self._result.value
+
+    @result.setter
+    def result(self, value: float):
+        self._result.value = value
+
 

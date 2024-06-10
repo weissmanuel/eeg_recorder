@@ -158,7 +158,7 @@ class Footer(ctk.CTkFrame):
     def update_graph(self, i):
         try:
             if self.plot_store is not None:
-                x, y = copy.deepcopy(self.plot_store.get_data())
+                x, y, _ = copy.deepcopy(self.plot_store.get_freq_data())
                 self.ax.clear()
                 self.ax.plot(x, y)
 

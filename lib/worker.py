@@ -381,11 +381,13 @@ class RealTimeSSVEPDecoder(RealTimeWorker):
         return b, a
 
     def notch_filter(self, data):
-        y = filtfilt(self.notch_coefficients[0], self.notch_coefficients[1], data, axis=1)
+        b, a = self.init_notch()
+        y = filtfilt(b, a, data, axis=1)
         return y
 
     def butter_bandpass_filter(self, data):
-        y = lfilter(self.band_pass_coefficients[0], self.band_pass_coefficients[1], data, axis=1)
+        b, a = self.init_bandpass()
+        y = lfilter(b, a, data, axis=1)
         return y
 
     def reshape_data(self, data: ndarray) -> ndarray:
@@ -399,13 +401,16 @@ class RealTimeSSVEPDecoder(RealTimeWorker):
         return data
 
     def preprocess_raw(self, raw: RawArray) -> RawArray:
-        raw = raw.notch_filter(freqs=50)
-        raw = raw.filter(l_freq=self.real_time_store.low_cut, h_freq=self.real_time_store.high_cut)
+        raw = raw.notch_filter(freqs=50, method='iir', verbose=False)
+        raw = raw.filter(l_freq=self.real_time_store.low_cut, h_freq=self.real_time_store.high_cut, method='fir',
+                         verbose=False)
         return raw
 
     def preprocess_data(self, data: ndarray) -> ndarray:
         info = create_info(self.config)
         data = self.preprocess(info=info, data=data)
+        # data = self.notch_filter(data)
+        # data = self.butter_bandpass_filter(data)
         raw = create_raw(data=data, info=info)
         raw = self.preprocess_raw(raw)
         data = raw.get_data()
@@ -449,16 +454,23 @@ class RealTimeSSVEPDecoder(RealTimeWorker):
 
         return frequencies, magnitudes, most_prominent_frequency
 
-    def to_mne_raw(self, data: ndarray, sfreq: float, ch_names: List[str], ch_types: List[str]) -> mne.io.RawArray:
-        data = data.transpose()
-        info = mne.create_info(ch_names=ch_names, sfreq=sfreq, ch_types=ch_types)
-        raw = mne.io.RawArray(data, info)
-        return raw
+    def get_time_axis(self, data: ndarray) -> ndarray:
+        sfreq = self.real_time_store.sfreq
+        n_times = data.shape[-1]
+        times = np.arange(0, n_times)
+        times = np.round(times / sfreq, 4)
+        return times
 
-    def process_data(self, data: ndarray) -> Tuple[ndarray, ndarray, float]:
+    def assign_time_data(self, data: ndarray, channel: int = 0):
+        self.plot_store.x_time = self.get_time_axis(data).tolist()
+        self.plot_store.y_time = data[channel].tolist()
+
+    def process_data(self, data: ndarray):
         # return np.array(range(len(data[0]))), data[0], 0
         data = self.preprocess_data(data)
-        return self.spectral_analysis(data, self.real_time_store.channel)
+        self.assign_time_data(data)
+        freqs, amps, result = self.spectral_analysis(data, self.real_time_store.channel)
+        self.plot_store.set_freq_data(freqs, amps, result)
 
     def work(self, lock: Lock):
 
@@ -471,15 +483,11 @@ class RealTimeSSVEPDecoder(RealTimeWorker):
             self.lock.release()
             if data is not None:
                 data = self.reshape_data(data)
-                x, y, max_freq = self.process_data(data)
-                print('Max frequency: %d' % max_freq)
+                self.process_data(data)
+                # print('Max frequency: %d' % max_freq)
                 # print('Head: %d' % self.real_time_store.head)
                 # print(f'Data: {data.shape}')
-                with open(f"./data/real_time/data.npy", 'wb') as f:
-                    np.save(f, x)
-                    np.save(f, y)
-                    self.plot_store.set_data(x, y)
-                    # print(y)
+                # self.plot_store.set_data(x, y)
             else:
                 # print('No data')
                 pass
@@ -492,7 +500,8 @@ class RealTimeVisualizer(RealTimeWorker):
                  lock: Lock,
                  recorder_store: RecorderStore,
                  real_time_store: RealTimeStore,
-                 plot_store: PlotStore
+                 plot_store: PlotStore,
+                 config: DictConfig
                  ):
         super().__init__(lock, recorder_store, real_time_store)
 
@@ -500,49 +509,73 @@ class RealTimeVisualizer(RealTimeWorker):
         self.plot_store = plot_store
         self.plotting: bool = False
 
+        self.config = config
+        self.last_freq_max = 0
+        self.last_y_time_max = 0
+        self.last_x_time_max = 0
+
     def work(self, lock: Lock):
         dpg.create_context()
 
-        sindatax = []
-        sindatay = []
-
-        for i in range(0, 500):
-            sindatax.append(i / 1000)
-            sindatay.append(0.5 + 0.5 * sin(50 * i / 1000))
-
         def update_series():
-            self.last_y_max = 0
             while dpg.is_dearpygui_running() and self.recorder_store.is_recording:
-                x, y = copy.copy(self.plot_store.get_data())
-                if x is not None and y is not None and len(x) > 0 and len(y) > 0:
-                    y_max = np.max(y)
-                    if y_max > self.last_y_max * 1.1 or y_max < self.last_y_max * 0.9:
-                        self.last_y_max = y_max
-                        dpg.set_axis_limits("y_axis", 0, y_max * 1.1)
-                    dpg.set_value('series_tag', [self.plot_store.x, self.plot_store.y])
-                    dpg.set_item_label('series_tag', "0.5 + 0.5 * cos(x)")
+
+                x_freq, y_freq, max_freq = copy.copy(self.plot_store.get_freq_data())
+                if x_freq is not None and y_freq is not None and len(x_freq) > 0 and len(y_freq) > 0:
+                    y_freq_max = np.max(y_freq)
+                    if y_freq_max > self.last_freq_max * 1.1 or y_freq_max < self.last_freq_max * 0.9:
+                        self.last_freq_max = y_freq_max
+                        dpg.set_axis_limits("y_freq", 0, y_freq_max * 1.1)
+                    dpg.set_value('freq_series', [x_freq, y_freq])
+                    dpg.set_value('result_text', max_freq)
+
+                x_time, y_time = copy.copy(self.plot_store.get_time_data())
+                if x_time is not None and y_time is not None and len(x_time) > 0 and len(y_time) > 0:
+                    y_time_max = np.max(y_time)
+                    if y_time_max > self.last_y_time_max * 1.1 or y_time_max < self.last_y_time_max * 0.9:
+                        self.last_y_time_max = y_time_max
+                        dpg.set_axis_limits("y_time", np.min(y_time) * 0.9, y_time_max * 1.1)
+                    dpg.set_value('time_series', [x_time, y_time])
                 time.sleep(0.1)
 
-        with dpg.window(label="Tutorial", tag="win"):
-            dpg.add_button(label="Update Series", callback=update_series)
-            # create plot
-            with dpg.plot(label="Line Series", height=400, width=400):
+        with dpg.window(label="Spectral Analysis", tag="win_feq", pos=[0, 0], width=400, height=400):
+            with dpg.plot(label="Spectral Analysis", height=400, width=400):
                 # optionally create legend
                 dpg.add_plot_legend()
 
                 # REQUIRED: create x and y axes
-                dpg.add_plot_axis(dpg.mvXAxis, label="x", tag='x_axis')
-                dpg.set_axis_limits("x_axis", 0, 125)
-                dpg.add_plot_axis(dpg.mvYAxis, label="y", tag="y_axis")
+                dpg.add_plot_axis(dpg.mvXAxis, label="Frequencies", tag='x_freq')
+                dpg.set_axis_limits("x_freq",
+                                    self.config.real_time.bandpass.low_cut - 5,
+                                    self.config.real_time.bandpass.high_cut + 5)
+                dpg.add_plot_axis(dpg.mvYAxis, label="Amplitudes", tag="y_freq")
 
                 # series belong to a y-axis
-                dpg.add_line_series(self.plot_store.x, self.plot_store.x, label="0.5 + 0.5 * sin(x)", parent="y_axis",
-                                    tag="series_tag")
+                dpg.add_line_series(self.plot_store.x_freq, self.plot_store.y_freq, label="Spectral Analysis",
+                                    parent="y_freq", tag="freq_series")
+
+        with dpg.window(label="Result", tag="win_result", pos=[400, 0], width=200, height=400):
+            dpg.add_text("Max Frequency", tag='result_title')
+            dpg.add_text("0", tag='result_text')
+
+        with dpg.window(label="EEG Data", tag="win_time", width=600, height=450, pos=[0, 400]):
+            with dpg.plot(label="EEG Data", width=600, height=400):
+                # optionally create legend
+                dpg.add_plot_legend()
+
+                # REQUIRED: create x and y axes
+                dpg.add_plot_axis(dpg.mvXAxis, label="Time Samples", tag='x_time')
+                dpg.set_axis_limits("x_time", 0, self.config.real_time.window_size_seconds + 1)
+                dpg.add_plot_axis(dpg.mvYAxis, label="Volts", tag="y_time")
+
+                # series belong to a y-axis
+                dpg.add_line_series(self.plot_store.x_time, self.plot_store.x_time, label="EEG Signal", parent="y_time",
+                                    tag="time_series")
 
         thread = threading.Thread(target=update_series)
         thread.start()
 
-        dpg.create_viewport(title='Custom Title', width=800, height=600)
+        dpg.create_viewport(title='EEG Visualizer', width=620, height=900)
         dpg.setup_dearpygui()
         dpg.show_viewport()
         dpg.start_dearpygui()

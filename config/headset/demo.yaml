@@ -6,6 +6,7 @@ channel_names: ['Fz', 'Cz']
 channel_types: ['eeg', 'eeg']
 sfreq: 250
 montage: 'standard_1020'
+target_channel: 0
 
 channel_names_mapping:
   '0': 'Fz'

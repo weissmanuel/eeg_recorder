@@ -124,14 +124,14 @@ class Recorder:
                 self.persister_workers.append(persister_worker)
 
     def initialise_real_time(self, config: DictConfig):
-        if 'real_time' in config and config.real_time is not None:
+        if 'real_time' in config and config.real_time is not None and config.real_time.enabled:
             self.real_time_store = RealTimeStore.from_config(config.real_time, self.manager)
-            self.plot_store = PlotStore(self.manager, 'Test Plot', 'Frequencies', 'Amplitude')
+            self.plot_store = PlotStore(self.manager)
             self.real_time_workers.append(RealTimeRecorder(self.lock, self.recorder_store, self.real_time_store))
             self.real_time_workers.append(RealTimeSSVEPDecoder(self.lock, self.recorder_store, self.real_time_store,
                                                                plot_store=self.plot_store, config=config))
             self.real_time_workers.append(RealTimeVisualizer(self.lock, self.recorder_store, self.real_time_store,
-                                                             self.plot_store))
+                                                             self.plot_store, config))
 
 
 
