@@ -34,6 +34,7 @@ from mne import Info
 from lib.preprocess.pipeline import CustomScaler
 from lib.preprocess.data_preprocess import get_preprocessors, Preprocessor
 from sklearn.preprocessing import MinMaxScaler
+from collections import deque
 
 
 class Worker(ABC):
@@ -370,6 +371,8 @@ class RealTimeSSVEPDecoder(RealTimeWorker):
 
         self.config = config
 
+        self.queue = deque(maxlen=5)
+
     def init_notch(self, notch: float = 50.0, qf: float = 5):
         return iirnotch(notch, qf, self.real_time_store.sfreq)
 
@@ -408,23 +411,18 @@ class RealTimeSSVEPDecoder(RealTimeWorker):
 
     def preprocess_data(self, data: ndarray) -> ndarray:
         info = create_info(self.config)
-        # data = self.preprocess(info=info, data=data)
+        data = self.preprocess(info=info, data=data)
         # data = self.notch_filter(data)
         # data = self.butter_bandpass_filter(data)
-        # raw = create_raw(data=data, info=info)
-        # raw = self.preprocess_raw(raw)
-        # data = raw.get_data()
+        raw = create_raw(data=data, info=info)
+        raw = self.preprocess_raw(raw)
+        data = raw.get_data()
         # scaler = MinMaxScaler()
         # data = scaler.fit_transform(data)
         return data
 
-    # def preprocess_data(self, data: ndarray) -> ndarray:
-    #     data = self.notch_filter(data)
-    #     data = self.butter_bandpass_filter(data)
-    #     return data
-
     def spectral_analysis(self, data: ndarray, channel: int = 0) -> Tuple[ndarray, ndarray, float]:
-        band_width = 0.5
+        band_width = 5
 
         data = data[channel]
 
@@ -469,6 +467,10 @@ class RealTimeSSVEPDecoder(RealTimeWorker):
         # return np.array(range(len(data[0]))), data[0], 0
         data = self.preprocess_data(data)
         self.assign_time_data(data)
+        self.queue.append(data)
+        data = list(self.queue)
+        data = np.array(data)
+        data = np.mean(data, axis=0)
         freqs, amps, result = self.spectral_analysis(data, self.real_time_store.channel)
         self.plot_store.set_freq_data(freqs, amps, result)
 
