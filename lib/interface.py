@@ -67,33 +67,60 @@ class StreamInfo(ctk.CTkFrame):
         safe_update_value(self.iterations, info.iterations)
 
 
-class Header(ctk.CTkFrame):
+class ActionsSection(ctk.CTkFrame):
 
-    def __init__(self, parent):
+    def __init__(self, parent, title: str, action_name: str):
         super().__init__(parent)
 
         self.grid(row=0, column=0, padx=10, pady=(10, 0), sticky='nsew')
         self.grid_columnconfigure(0, weight=1)
-        self.grid_columnconfigure(1, weight=1)
 
-        self.header_box_left = ctk.CTkFrame(self, fg_color='transparent')
-        self.header_box_left.grid(row=0, column=0)
-        self.header_box_right = ctk.CTkFrame(self, fg_color='transparent')
-        self.header_box_right.grid(row=0, column=1)
+        self.header = ctk.CTkFrame(self, fg_color='transparent')
+        self.header.grid(row=0, column=0, padx=10, pady=(20, 0), sticky='nsew')
+        self.header.grid_columnconfigure(0, weight=1)
 
-        self.status_label = ctk.CTkLabel(self.header_box_left, text="Status:", font=ctk.CTkFont(weight='bold'))
-        self.status_label.grid(row=0, column=0, pady=10, padx=10, sticky='s')
+        self.title = ctk.CTkLabel(self.header, text=title, anchor='n',
+                                  font=ctk.CTkFont(weight='bold'))
+        self.title.grid(row=0, column=0, pady=0, padx=5, sticky='nsew')
 
-        self.status_value = ctk.CTkLabel(self.header_box_right, text="Idle", font=ctk.CTkFont(weight='bold'))
-        self.status_value.grid(row=0, column=1, pady=10, padx=10, sticky='s')
+        self.body = ctk.CTkFrame(self, fg_color='transparent')
+        self.body.grid(row=1, column=0, padx=10, pady=(0, 10), sticky='nsew')
+        self.body.grid_columnconfigure(0, weight=1)
+        self.body.grid_columnconfigure(1, weight=1)
 
-        self.start_button = ctk.CTkButton(self.header_box_left, text="Start",
-                                          command=lambda: print("Starting EEG Recorder"))
-        self.start_button.grid(row=1, column=0, pady=10, padx=10, sticky='e')
+        self.box_left = ctk.CTkFrame(self.body, fg_color='transparent')
+        self.box_left.grid(row=0, column=0)
+        self.box_right = ctk.CTkFrame(self.body, fg_color='transparent')
+        self.box_right.grid(row=0, column=1)
 
-        self.stop_button = ctk.CTkButton(self.header_box_right, text="Stop",
-                                         command=lambda: print("Stopping EEG Recorder"))
-        self.stop_button.grid(row=1, column=1, pady=10, padx=10, sticky='e')
+        self.status_label = ctk.CTkLabel(self.box_left, text="Status:", font=ctk.CTkFont(weight='bold'))
+        self.status_label.grid(row=1, column=0, pady=(0, 10), padx=10, sticky='s')
+
+        self.status_value = ctk.CTkLabel(self.box_right, text="Idle", font=ctk.CTkFont(weight='bold'))
+        self.status_value.grid(row=1, column=1, pady=(0, 10), padx=10, sticky='s')
+
+        self.start_button = ctk.CTkButton(self.box_left, text=f"Start {action_name}",
+                                          command=lambda: print(f"Starting {action_name}"))
+        self.start_button.grid(row=2, column=0, pady=(0, 10), padx=10, sticky='e')
+
+        self.stop_button = ctk.CTkButton(self.box_right, text=f"Stop {action_name}",
+                                         command=lambda: print(f"Stopping {action_name}"))
+        self.stop_button.grid(row=2, column=1, pady=(0, 10), padx=10, sticky='e')
+
+
+class Header(ctk.CTkFrame):
+
+    def __init__(self, parent):
+        super().__init__(parent, fg_color='transparent')
+
+        self.grid(row=0, column=0, sticky='nsew')
+        self.grid_columnconfigure(0, weight=1)
+
+        self.recording_actions = ActionsSection(self, 'Recording | Training', 'Recording')
+        self.recording_actions.grid(row=0, column=0)
+
+        self.inference_actions = ActionsSection(self, 'Real Time | Inference', 'Inference')
+        self.inference_actions.grid(row=1, column=0)
 
 
 class Body(ctk.CTkFrame):
@@ -173,7 +200,6 @@ class Footer(ctk.CTkFrame):
 
 
 class Interface(ctk.CTk):
-
     plot_store: PlotStore | None = None
 
     def __init__(self, geometry: str = '600x700', plot_store: PlotStore = None):
@@ -198,16 +224,16 @@ class Interface(ctk.CTk):
 
         # self.graph_view = ctk.CTkToplevel(self)
 
-    def set_start_action(self, start_action: Callable) -> 'Interface':
-        self.header.start_button.configure(command=lambda: self.after(10, start_action))
+    def set_recording_start_action(self, start_action: Callable) -> 'Interface':
+        self.header.recording_actions.start_button.configure(command=lambda: self.after(10, start_action))
         return self
 
-    def set_stop_action(self, stop_action: Callable) -> 'Interface':
-        self.header.stop_button.configure(command=lambda: self.after(10, stop_action))
+    def set_recording_stop_action(self, stop_action: Callable) -> 'Interface':
+        self.header.recording_actions.stop_button.configure(command=lambda: self.after(10, stop_action))
         return self
 
-    def set_status(self, text: str) -> 'Interface':
-        self.header.status_value.configure(text=text)
+    def set_recording_status(self, text: str) -> 'Interface':
+        self.header.recording_actions.status_value.configure(text=text)
         return self
 
     def set_recording_info(self, info: RecordingInfo) -> 'Interface':
