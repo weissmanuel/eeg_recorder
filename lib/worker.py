@@ -408,12 +408,12 @@ class RealTimeSSVEPDecoder(RealTimeWorker):
 
     def preprocess_data(self, data: ndarray) -> ndarray:
         info = create_info(self.config)
-        data = self.preprocess(info=info, data=data)
+        # data = self.preprocess(info=info, data=data)
         # data = self.notch_filter(data)
         # data = self.butter_bandpass_filter(data)
-        raw = create_raw(data=data, info=info)
-        raw = self.preprocess_raw(raw)
-        data = raw.get_data()
+        # raw = create_raw(data=data, info=info)
+        # raw = self.preprocess_raw(raw)
+        # data = raw.get_data()
         # scaler = MinMaxScaler()
         # data = scaler.fit_transform(data)
         return data
@@ -484,13 +484,6 @@ class RealTimeSSVEPDecoder(RealTimeWorker):
             if data is not None:
                 data = self.reshape_data(data)
                 self.process_data(data)
-                # print('Max frequency: %d' % max_freq)
-                # print('Head: %d' % self.real_time_store.head)
-                # print(f'Data: {data.shape}')
-                # self.plot_store.set_data(x, y)
-            else:
-                # print('No data')
-                pass
             time.sleep(1 / 20)
 
 
