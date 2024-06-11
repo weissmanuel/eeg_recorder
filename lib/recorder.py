@@ -9,7 +9,7 @@ from omegaconf import DictConfig
 from multiprocessing import Manager, Lock
 from lib.worker import RecordingWorker, PersistenceWorker, Worker, RealTimeRecorder, RealTimeWorker, RealTimeSSVEPDecoder, RealTimeVisualizer
 from lib.store import StreamType, StreamStore, RecorderStore, RealTimeStore, PlotStore
-from lib.persist import MneRawPersister, PersistingMode
+from lib.persist import Persister, get_persister, PersistingMode
 
 
 class InletInfo:
@@ -79,7 +79,7 @@ class Recorder:
     logger = logging.getLogger(__name__)
 
     manager: Manager
-    persister: MneRawPersister | None
+    persister: Persister | None
     persister_workers: List[PersistenceWorker] = []
 
     def __init__(self,
@@ -95,8 +95,7 @@ class Recorder:
 
         self.manager = Manager()
         self.lock = Lock()
-        self.persister = MneRawPersister(config=config)
-        # self.persister = None
+        self.persister = get_persister(config.persister, config)
         self.initialise_recorders()
         self.initialise_persisters(config)
         self.initialise_real_time(config)
@@ -227,7 +226,7 @@ class Recorder:
     def save(self, file_path: Union[str, None] = None) -> Tuple[RawArray, Path]:
         assert not self.is_recording, "You cannot generate an MNE Raw object while recording"
         stores = [recorder.stream_store for recorder in self.recorders]
-        return self.persister.save(stores, file_path)
+        return self.persister.save(stores, file_path=file_path)
 
     def complete_recording(self, file_path: Union[str, None] = None) -> Tuple[Union[RawArray, None], RecordingInfo]:
         if self.is_recording:

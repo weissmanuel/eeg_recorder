@@ -25,9 +25,15 @@ class PersistingMode(Enum):
 
 class Persister(ABC):
     logger = logging.getLogger(__name__)
+    config: DictConfig
+    persisting_mode: PersistingMode
 
     @abstractmethod
-    def save(self, stores: List[StreamStore]) -> Union[any, Union[str, Path]]:
+    def save(self, stores: List[StreamStore], **kwargs) -> Union[any, Union[str, Path]]:
+        pass
+
+    @abstractmethod
+    def delete(self):
         pass
 
 
@@ -93,7 +99,6 @@ class MneRawPersister(Persister):
         if intermediate_save:
             orig_state = signal_store.copy()
             signal, _ = signal_store.get_and_clear_data_times()
-            new_state = signal_store
             signal_store = orig_state
         else:
             signal = signal_store.data
@@ -169,3 +174,12 @@ class MneRawPersister(Persister):
             self.logger.info(f"Deleted Existing File: {file_path}")
         except FileNotFoundError:
             self.logger.info(f"Failed to delete file: {file_path}")
+
+
+def get_persister(name: str | None, config: DictConfig) -> Persister | None:
+    if name is None:
+        return None
+    if name == 'mne_raw_persister':
+        return MneRawPersister(config)
+    else:
+        raise ValueError(f"Persister {name} not found")

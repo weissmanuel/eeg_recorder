@@ -1,0 +1,13 @@
+
+sources:
+  - - ${headset.source_id}
+    - 'EEG'
+  - - 'rsvp_markers'
+    - 'MARKER'
+
+persister: 'mne_raw_persister'
+persisting_mode: 'replace'
+persister_workers: null
+#persister_workers:
+#  - name: 'default'
+#    interval: 30

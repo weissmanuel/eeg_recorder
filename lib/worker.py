@@ -129,7 +129,7 @@ class RecordingWorker(ProcessWorker):
 
     def buffer_size(self, stream: StreamLSL) -> int:
         if stream is not None:
-            sfreq = self.stream.info['sfreq']
+            sfreq = stream.info['sfreq']
             return math.ceil(self.buffer_size_seconds * sfreq)
         return 0
 
@@ -262,7 +262,7 @@ class PersistenceWorker(ProcessWorker):
                  interval: int,
                  recorder_store: RecorderStore,
                  stream_stores: List[StreamStore],
-                 persister: MneRawPersister
+                 persister: Persister
                  ):
         super().__init__(lock)
 

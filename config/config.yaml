@@ -2,18 +2,11 @@
 
 defaults:
   - headset: demo
+  - experiment: demo
   - _self_
 
-#sources: []
-sources:
-  - - ${headset.source_id}
-    - 'EEG'
-  - - 'rsvp_markers'
-    - 'MARKER'
 
-signal_id: ${headset.source_id}
-marker_id: 'rsvp_markers'
-#marker_id: null
+sources: ${experiment.sources}
 
 recording:
   subject: 1
@@ -22,11 +15,9 @@ recording:
 
 buffer_size_seconds: 60
 
-persisting_mode: 'replace'
-persister_workers: null
-#persister_workers:
-#  - name: 'default'
-#    interval: 30
+persister: ${experiment.persister}
+persisting_mode: ${experiment.persisting_mode}
+persister_workers: ${experiment.persister_workers}
 
 #preprocessors: []
 preprocessors:
