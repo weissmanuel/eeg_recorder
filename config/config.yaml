@@ -4,12 +4,12 @@ defaults:
   - headset: demo
   - _self_
 
-sources: []
-#sources:
-#  - - ${headset.source_id}
-#    - 'EEG'
-#  - - 'rsvp_markers'
-#    - 'MARKER'
+#sources: []
+sources:
+  - - ${headset.source_id}
+    - 'EEG'
+  - - 'rsvp_markers'
+    - 'MARKER'
 
 signal_id: ${headset.source_id}
 marker_id: 'rsvp_markers'

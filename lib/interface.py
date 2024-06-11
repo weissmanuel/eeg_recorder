@@ -245,6 +245,18 @@ class Interface(ctk.CTk):
         self.footer.update_info(info)
         return self
 
+    def set_inference_start_action(self, start_action: Callable) -> 'Interface':
+        self.header.inference_actions.start_button.configure(command=lambda: self.after(10, start_action))
+        return self
+
+    def set_inference_stop_action(self, stop_action: Callable) -> 'Interface':
+        self.header.inference_actions.stop_button.configure(command=lambda: self.after(10, stop_action))
+        return self
+
+    def set_inference_status(self, text: str) -> 'Interface':
+        self.header.inference_actions.status_value.configure(text=text)
+        return self
+
     def set_signal_progress(self, info: InletInfo) -> None:
         self.body.signal_section.update_info(info)
 

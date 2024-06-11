@@ -95,8 +95,8 @@ class Recorder:
 
         self.manager = Manager()
         self.lock = Lock()
-        # self.persister = MneRawPersister(config=config)
-        self.persister = None
+        self.persister = MneRawPersister(config=config)
+        # self.persister = None
         self.initialise_recorders()
         self.initialise_persisters(config)
         self.initialise_real_time(config)
@@ -151,19 +151,25 @@ class Recorder:
         if self.persister is not None and self.persister.persisting_mode == PersistingMode.CONTINUOUS:
             self.persister.delete()
 
+    def get_recording_workers(self) -> List[Worker]:
+        return self.recorders + self.persister_workers
+
+    def get_inference_workers(self) -> List[Worker]:
+        return self.real_time_workers
+
     def get_workers(self) -> List[Worker]:
         return self.recorders + self.persister_workers + self.real_time_workers
 
-    def start(self):
+    def start_recording(self):
         if not self.is_recording:
             self.reset_recording()
             self.logger.info("Starting Recording")
             self.recorder_store.start()
 
-            for worker in self.get_workers():
+            for worker in self.get_recording_workers():
                 worker.start()
 
-    def stop(self):
+    def stop_recording(self):
         if self.is_recording:
             self.logger.info("Stopping Recording")
             self.recorder_store.stop()
@@ -172,6 +178,22 @@ class Recorder:
                 time.sleep(1)
             self.summary()
             self.logger.info("Recording Stopped")
+
+    def start_inference(self):
+        if not self.is_recording:
+            self.reset_recording()
+            self.logger.info("Starting Inference")
+            self.recorder_store.start()
+            for worker in self.get_inference_workers():
+                worker.start()
+
+    def stop_inference(self):
+        if self.is_recording:
+            self.logger.info("Stopping Inference")
+            self.recorder_store.stop()
+            for worker in self.get_inference_workers():
+                worker.stop()
+            self.logger.info("Inference Stopped")
 
     def kill(self):
         for worker in self.get_workers():
@@ -207,15 +229,15 @@ class Recorder:
         stores = [recorder.stream_store for recorder in self.recorders]
         return self.persister.save(stores, file_path)
 
-    def complete(self, file_path: Union[str, None] = None) -> Tuple[Union[RawArray, None], RecordingInfo]:
+    def complete_recording(self, file_path: Union[str, None] = None) -> Tuple[Union[RawArray, None], RecordingInfo]:
         if self.is_recording:
-            self.stop()
+            self.stop_recording()
             if self.persister is not None:
                 raw, path = self.save(file_path)
                 info = self.get_info()
                 info.file_path = path
                 self.logger.info("Recording Completed")
-                for worker in self.get_workers():
+                for worker in self.get_recording_workers():
                     worker.stop()
                 return raw, info
         return None, RecordingInfo()
