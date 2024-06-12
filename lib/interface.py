@@ -69,7 +69,7 @@ class StreamInfo(ctk.CTkFrame):
 
 class ActionsSection(ctk.CTkFrame):
 
-    def __init__(self, parent, title: str, action_name: str):
+    def __init__(self, parent, title: str, action_name: str, has_stop: bool = True):
         super().__init__(parent)
 
         self.grid(row=0, column=0, padx=10, pady=(10, 0), sticky='nsew')
@@ -94,18 +94,18 @@ class ActionsSection(ctk.CTkFrame):
         self.box_right.grid(row=0, column=1)
 
         self.status_label = ctk.CTkLabel(self.box_left, text="Status:", font=ctk.CTkFont(weight='bold'))
-        self.status_label.grid(row=1, column=0, pady=(0, 10), padx=10, sticky='s')
+        self.status_label.grid(row=0, column=0, pady=(0, 10), padx=10, sticky='n')
 
         self.status_value = ctk.CTkLabel(self.box_right, text="Idle", font=ctk.CTkFont(weight='bold'))
-        self.status_value.grid(row=1, column=1, pady=(0, 10), padx=10, sticky='s')
+        self.status_value.grid(row=0, column=1, pady=(0, 10), padx=10, sticky='n')
 
         self.start_button = ctk.CTkButton(self.box_left, text=f"Start {action_name}",
                                           command=lambda: print(f"Starting {action_name}"))
-        self.start_button.grid(row=2, column=0, pady=(0, 10), padx=10, sticky='e')
+        self.start_button.grid(row=1, column=0, pady=(0, 10), padx=10, sticky='w')
 
         self.stop_button = ctk.CTkButton(self.box_right, text=f"Stop {action_name}",
-                                         command=lambda: print(f"Stopping {action_name}"))
-        self.stop_button.grid(row=2, column=1, pady=(0, 10), padx=10, sticky='e')
+                                     command=lambda: print(f"Stopping {action_name}"))
+        self.stop_button.grid(row=1, column=1, pady=(0, 10), padx=10, sticky='e')
 
 
 class Header(ctk.CTkFrame):
@@ -116,11 +116,16 @@ class Header(ctk.CTkFrame):
         self.grid(row=0, column=0, sticky='nsew')
         self.grid_columnconfigure(0, weight=1)
 
-        self.recording_actions = ActionsSection(self, 'Recording | Training', 'Recording')
+        self.recording_actions = ActionsSection(self, 'Recording', 'Recording')
         self.recording_actions.grid(row=0, column=0)
 
+        self.train_actions = ActionsSection(self, 'Training', 'Training', has_stop=False)
+        self.train_actions.grid(row=1, column=0)
+
         self.inference_actions = ActionsSection(self, 'Real Time | Inference', 'Inference')
-        self.inference_actions.grid(row=1, column=0)
+        self.inference_actions.grid(row=2, column=0)
+
+
 
 
 class Body(ctk.CTkFrame):
@@ -156,47 +161,11 @@ class Footer(ctk.CTkFrame):
         self.duration = KeyValue(self, key='Duration:', value='', row=3)
         self.file_path = KeyValue(self, key='File Path:', value='', row=4)
 
-        self.label = ctk.CTkLabel(self, text="Graph View", anchor='n', font=ctk.CTkFont(weight='bold'))
-        self.label.grid(row=5, column=0, pady=(20, 0), padx=10, sticky='nsew')
-        self.figure = Figure(figsize=(5, 5), dpi=100)
-        self.ax = self.figure.add_subplot(111)
-        self.ax.plot(np.random.rand(10))
-        self.canvas = FigureCanvasTkAgg(self.figure, self)
-        self.canvas.get_tk_widget().grid(row=6, column=0, pady=10, padx=10, sticky='nsew')
-        # self.animation = animation.FuncAnimation(self.figure, func=self.update_graph, interval=50, cache_frame_data=False)
-
     def update_info(self, info: RecordingInfo):
         self.start_time.update_value(str(info.start_time))
         self.end_time.update_value(str(info.end_time))
         self.duration.update_value(str(info.duration))
         self.file_path.update_value(str(info.file_path))
-
-    # def update_graph(self, i):
-    #     try:
-    #         with open("./data/real_time/data.npy", "rb") as f:
-    #             x = np.load(f)
-    #             y = np.load(f)
-    #             y = y[0, :]
-    #             self.ax.clear()
-    #             self.ax.plot(x, y)
-    #     except Exception as e:
-    #         pass
-
-    def update_graph(self, i):
-        try:
-            if self.plot_store is not None:
-                x, y, _ = copy.deepcopy(self.plot_store.get_freq_data())
-                self.ax.clear()
-                self.ax.plot(x, y)
-
-        except Exception as e:
-            pass
-
-    def stop(self):
-        try:
-            self.animation.pause()
-        except Exception:
-            pass
 
 
 class Interface(ctk.CTk):
@@ -245,6 +214,14 @@ class Interface(ctk.CTk):
         self.footer.update_info(info)
         return self
 
+    def set_training_start_action(self, start_action: Callable) -> 'Interface':
+        self.header.train_actions.start_button.configure(command=lambda: self.after(10, start_action))
+        return self
+
+    def set_training_status(self, text: str) -> 'Interface':
+        self.header.train_actions.status_value.configure(text=text)
+        return self
+
     def set_inference_start_action(self, start_action: Callable) -> 'Interface':
         self.header.inference_actions.start_button.configure(command=lambda: self.after(10, start_action))
         return self
@@ -268,7 +245,6 @@ class Interface(ctk.CTk):
 
     def stop(self):
         try:
-            self.footer.stop()
             self.destroy()
         except Exception as e:
             pass

@@ -2,7 +2,7 @@
 
 defaults:
   - headset: demo
-  - experiment: demo
+  - experiment: ssvep
   - _self_
 
 

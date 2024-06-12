@@ -10,6 +10,8 @@ from multiprocessing import Manager, Lock
 from lib.worker import RecordingWorker, PersistenceWorker, Worker, RealTimeRecorder, RealTimeWorker, RealTimeSSVEPDecoder, RealTimeVisualizer
 from lib.store import StreamType, StreamStore, RecorderStore, RealTimeStore, PlotStore
 from lib.persist import Persister, get_persister, PersistingMode
+from lib.train.ssvep import train_ssvep_classifier
+import threading
 
 
 class InletInfo:
@@ -227,6 +229,16 @@ class Recorder:
         assert not self.is_recording, "You cannot generate an MNE Raw object while recording"
         stores = [recorder.stream_store for recorder in self.recorders]
         return self.persister.save(stores, file_path=file_path)
+
+    def start_training(self):
+        if self.config.experiment.training is not None and self.config.experiment.training.enabled:
+            training_cfg = self.config.experiment.training
+            train_type = training_cfg.type
+            if train_type == 'ssvep':
+                train_ssvep_classifier(self.config, self.get_file_path())
+            else:
+                raise ValueError(f'Unsupported training type: {train_type}')
+
 
     def complete_recording(self, file_path: Union[str, None] = None) -> Tuple[Union[RawArray, None], RecordingInfo]:
         if self.is_recording:

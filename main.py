@@ -16,6 +16,11 @@ def stop_recording(recorder: Recorder, interface: Interface):
     interface.set_recording_status(text="Recording Completed")
     interface.set_recording_info(info)
 
+def start_training(recorder: Recorder, interface: Interface):
+    interface.set_training_status(text="Start Training...")
+    recorder.start_training()
+    interface.set_training_status(text="Training completed")
+
 
 def start_inference(recorder: Recorder, interface: Interface):
     interface.set_inference_status(text="Start Inference...")
@@ -35,6 +40,7 @@ def main(config: DictConfig):
     interface = Interface(plot_store=recorder.plot_store)
     interface.set_recording_start_action(lambda: start_recording(recorder, interface))
     interface.set_recording_stop_action(lambda: stop_recording(recorder, interface))
+    interface.set_training_start_action(lambda: start_training(recorder, interface))
     interface.set_inference_start_action(lambda: start_inference(recorder, interface))
     interface.set_inference_stop_action(lambda: stop_inference(recorder, interface))
 

@@ -1,9 +1,10 @@
 from numpy import ndarray
 import mne
 from mne import Info
-from mne.io import RawArray
+from mne.io import RawArray, BaseRaw
 from omegaconf import DictConfig
 from lib.utils import config_to_primitive
+from abc import ABC, abstractmethod
 
 
 def create_info(config: DictConfig) -> Info:
@@ -25,3 +26,15 @@ def create_raw_from_config(data: ndarray, config: DictConfig) -> RawArray:
 def create_raw(data: ndarray, info: Info) -> RawArray:
     raw = mne.io.RawArray(data, info, verbose=False)
     return raw
+
+
+def load_raw(file_path: str) -> BaseRaw:
+    raw = mne.io.read_raw_fif(file_path, preload=True, verbose=False)
+    raw = raw.pick_types(eeg=True)
+    return raw
+
+
+def generate_epochs(raw: BaseRaw, event_mapping: dict | None = None,
+                    t_min: float = 0.0, t_max: float = 1.0) -> mne.Epochs:
+    events, _ = mne.events_from_annotations(raw, event_id=event_mapping)
+    return mne.Epochs(raw, events, tmin=t_min, tmax=t_max, baseline=None, preload=True)

@@ -7,3 +7,5 @@ persister_workers: null
 #persister_workers:
 #  - name: 'default'
 #    interval: 30
+
+training: null
