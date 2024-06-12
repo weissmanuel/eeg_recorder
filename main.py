@@ -37,7 +37,7 @@ def stop_inference(recorder: Recorder, interface: Interface):
 @hydra.main(config_path="./config", config_name="config", version_base=None)
 def main(config: DictConfig):
     recorder = Recorder(sources=config.sources, buffer_size_seconds=config.buffer_size_seconds, config=config)
-    interface = Interface(plot_store=recorder.plot_store)
+    interface = Interface()
     interface.set_recording_start_action(lambda: start_recording(recorder, interface))
     interface.set_recording_stop_action(lambda: stop_recording(recorder, interface))
     interface.set_training_start_action(lambda: start_training(recorder, interface))

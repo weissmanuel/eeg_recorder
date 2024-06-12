@@ -1,20 +1,6 @@
 import customtkinter as ctk
-import tkinter as tk
-from tkinter import ttk
 from typing import Callable
 from lib.recorder import InletInfo, RecordingInfo
-import numpy as np
-import matplotlib
-
-matplotlib.use("TkAgg")
-from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
-from matplotlib.figure import Figure
-from matplotlib import style
-from matplotlib import animation
-from lib.store import RealTimeStore, PlotStore
-import copy
-
-style.use("ggplot")
 
 
 class KeyValue:
@@ -146,10 +132,8 @@ class Body(ctk.CTkFrame):
 
 class Footer(ctk.CTkFrame):
 
-    def __init__(self, parent, plot_store: PlotStore = None):
+    def __init__(self, parent):
         super().__init__(parent)
-
-        self.plot_store = plot_store
 
         self.grid(row=2, column=0, sticky='nsew', padx=10, pady=20)
 
@@ -169,12 +153,9 @@ class Footer(ctk.CTkFrame):
 
 
 class Interface(ctk.CTk):
-    plot_store: PlotStore | None = None
 
-    def __init__(self, geometry: str = '600x700', plot_store: PlotStore = None):
+    def __init__(self, geometry: str = '600x700'):
         super().__init__()
-
-        self.plot_store = plot_store
 
         ctk.set_appearance_mode("dark")
         self.title("EEG Recorder")
@@ -189,7 +170,7 @@ class Interface(ctk.CTk):
 
         self.header = Header(self.root)
         self.body = Body(self.root)
-        self.footer = Footer(self.root, self.plot_store)
+        self.footer = Footer(self.root)
 
         # self.graph_view = ctk.CTkToplevel(self)
 

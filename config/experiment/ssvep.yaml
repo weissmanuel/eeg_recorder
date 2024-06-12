@@ -12,15 +12,21 @@ persister_workers: null
 #  - name: 'default'
 #    interval: 30
 
+labels: [10, 15, 20, 25]
+
 training:
   enabled: True
   type: 'ssvep'
   pipeline_path: './data/models/ssvep_pipeline.pth'
   pipeline:
+    - name: 'fft'
+      kwargs: {}
     - name: 'channel_reshape'
       kwargs: {}
     - name: 'random_forest'
       kwargs: {}
 
-
-decoder_path: ${experiment.training.pipeline_path}
+decoding:
+#  type: 'model' # threshold, model
+  type: 'threshold' # threshold, model
+  decoder_path: ${experiment.training.pipeline_path}

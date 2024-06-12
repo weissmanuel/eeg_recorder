@@ -8,6 +8,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.pipeline import Pipeline
 from lib.train.pipeline import build_pipeline, save_pipeline
 from sklearn.metrics import classification_report
+from lib.utils import config_to_primitive
 
 
 def get_events_mapping() -> dict:
@@ -18,6 +19,9 @@ def get_events_mapping() -> dict:
         '3': 3,
     }
 
+def map_labels(labels: list, real_labels: list) -> list:
+    real_labels = config_to_primitive(real_labels)
+    return [real_labels[label] for label in labels]
 
 def train_ssvep_classifier(config: DictConfig, file_path: str):
     path = Path(file_path)
@@ -37,9 +41,9 @@ def train_ssvep_classifier(config: DictConfig, file_path: str):
 
     windows, window_labels = splitter(data, labels)
 
-    fft = FFT()
-    X = fft(windows)
+    X = windows
     y = window_labels
+    y = map_labels(y, config.experiment.labels)
 
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
     pipeline: Pipeline = build_pipeline(config.experiment.training.pipeline)

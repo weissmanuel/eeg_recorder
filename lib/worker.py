@@ -35,6 +35,9 @@ from lib.preprocess.pipeline import CustomScaler
 from lib.preprocess.data_preprocess import get_preprocessors, Preprocessor
 from sklearn.preprocessing import MinMaxScaler
 from collections import deque
+from sklearn.pipeline import Pipeline
+from sklearn.base import BaseEstimator
+from lib .train.pipeline import ThresholdingDecoder, load_pipeline
 
 
 class Worker(ABC):
@@ -372,6 +375,17 @@ class RealTimeSSVEPDecoder(RealTimeWorker):
         self.config = config
 
         self.queue = deque(maxlen=5)
+        self.decoder = self.init_decoder()
+
+    def init_decoder(self) -> Pipeline | BaseEstimator:
+        model_type = self.config.experiment.decoding.type
+        if model_type == 'threshold':
+            return ThresholdingDecoder(sfreq=self.real_time_store.sfreq,
+                                       target_frequencies=self.config.experiment.labels,
+                                       channel=self.real_time_store.channel,
+                                       band_width=1.0)
+        else:
+            return load_pipeline(self.config.experiment.decoding.decoder_path)
 
     def init_notch(self, notch: float = 50.0, qf: float = 5):
         return iirnotch(notch, qf, self.real_time_store.sfreq)
@@ -421,36 +435,17 @@ class RealTimeSSVEPDecoder(RealTimeWorker):
         # data = scaler.fit_transform(data)
         return data
 
-    def spectral_analysis(self, data: ndarray, channel: int = 0) -> Tuple[ndarray, ndarray, float]:
-        band_width = 5
-
+    def spectral_analysis(self, data: ndarray, channel: int = 0) -> Tuple[ndarray, ndarray]:
         data = data[channel]
 
         num_samples = data.shape[-1]
         fft_data = np.fft.fft(data)
-        fft_magnitude = np.abs(fft_data)
         frequencies = np.fft.fftfreq(num_samples, 1 / self.real_time_store.sfreq)
-
-        max_magnitude = 0
-        most_prominent_frequency = None
-
-        for target_frequency in self.real_time_store.target_frequencies:
-            # Find the indices of the FFT bins within the band around the target frequency
-            band_indices = np.where((frequencies >= target_frequency - band_width) &
-                                    (frequencies <= target_frequency + band_width))[0]
-
-            # Sum the magnitudes of these bins
-            band_magnitude = np.sum(fft_magnitude[band_indices])
-
-            # Check if this is the most prominent frequency so far
-            if band_magnitude > max_magnitude:
-                max_magnitude = band_magnitude
-                most_prominent_frequency = target_frequency
 
         frequencies = frequencies[:num_samples // 2]
         magnitudes = 2.0 / num_samples * np.abs(fft_data[:num_samples // 2])
 
-        return frequencies, magnitudes, most_prominent_frequency
+        return frequencies, magnitudes
 
     def get_time_axis(self, data: ndarray) -> ndarray:
         sfreq = self.real_time_store.sfreq
@@ -463,6 +458,13 @@ class RealTimeSSVEPDecoder(RealTimeWorker):
         self.plot_store.x_time = self.get_time_axis(data).tolist()
         self.plot_store.y_time = data[channel].tolist()
 
+    def predict(self, data: ndarray) -> float:
+        y_pred = self.decoder.predict(data)
+        if len(y_pred) == 1:
+            return y_pred[0]
+        else:
+            raise ValueError('Currently only one prediction is supported')
+
     def process_data(self, data: ndarray):
         # return np.array(range(len(data[0]))), data[0], 0
         data = self.preprocess_data(data)
@@ -471,7 +473,9 @@ class RealTimeSSVEPDecoder(RealTimeWorker):
         data = list(self.queue)
         data = np.array(data)
         data = np.mean(data, axis=0)
-        freqs, amps, result = self.spectral_analysis(data, self.real_time_store.channel)
+        freqs, amps = self.spectral_analysis(data, self.real_time_store.channel)
+        data = np.expand_dims(data, axis=0)
+        result = self.predict(data)
         self.plot_store.set_freq_data(freqs, amps, result)
 
     def work(self, lock: Lock):
