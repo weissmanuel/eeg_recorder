@@ -165,8 +165,10 @@ class RecordingWorker(ProcessWorker):
         self.stream_store.time_shift = self.stream_store.current_time - self.stream_store.last_batch_received_time
 
     def add_data(self, data: any, times: any, recording_stopped_at: Union[float, None] = None):
+        self.lock.acquire()
         self.stream_store.append_data(data.copy())
         self.stream_store.append_times(times.copy())
+        self.lock.release()
 
         self.evaluate_time_shift(times, recording_stopped_at)
 
@@ -281,7 +283,9 @@ class PersistenceWorker(ProcessWorker):
         while self.recorder_store.is_recording:
             time.sleep(self.interval)
             self.recorder_store.pause_recording()
+            self.lock.acquire()
             self.persister.save(self.stream_stores, intermediate_save=True)
+            self.lock.release()
             self.recorder_store.resume_recording()
 
 
