@@ -1,7 +1,6 @@
 import copy
 from abc import ABC, abstractmethod
-from .store import StreamStore, RecorderStore, StreamType
-import time
+from .store import StreamType
 from datetime import datetime, timedelta
 import logging
 from typing import Union, List
@@ -14,25 +13,19 @@ from multiprocessing import Process
 from lib.lsl import connect, disconnect
 from lib.store import RecorderStore, StreamStore, RealTimeStore, PlotStore
 import time
-from omegaconf import DictConfig
-from lib.persist import Persister, PersistingMode, MneRawPersister
+from lib.persist import Persister
 import numpy as np
 import threading
 from threading import Thread
-import scipy
 from scipy.signal import butter, lfilter, iirnotch, filtfilt
-import matplotlib.pyplot as plt
 from typing import Tuple
 from multiprocessing import Lock
 import dearpygui.dearpygui as dpg
-from math import sin, cos
 from lib.mne import create_raw, create_info
 from omegaconf import DictConfig
 from mne.io import RawArray
-import mne
 from mne import Info
 from lib.preprocess.data_preprocess import get_preprocessors, Preprocessor
-from sklearn.preprocessing import MinMaxScaler
 from collections import deque
 from sklearn.pipeline import Pipeline
 from sklearn.base import BaseEstimator

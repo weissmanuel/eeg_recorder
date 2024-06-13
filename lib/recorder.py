@@ -7,11 +7,11 @@ import time
 from lib.utils import format_seconds
 from omegaconf import DictConfig
 from multiprocessing import Manager, Lock
-from lib.worker import RecordingWorker, PersistenceWorker, Worker, RealTimeRecorder, RealTimeWorker, RealTimeSSVEPDecoder, RealTimeVisualizer
+from lib.worker import RecordingWorker, PersistenceWorker, Worker, RealTimeRecorder, RealTimeWorker, \
+    RealTimeSSVEPDecoder, RealTimeVisualizer
 from lib.store import StreamType, StreamStore, RecorderStore, RealTimeStore, PlotStore
 from lib.persist import Persister, get_persister, PersistingMode
 from lib.train.ssvep import train_ssvep_classifier
-import threading
 
 
 class InletInfo:
@@ -116,7 +116,6 @@ class Recorder:
         if 'persister_workers' in config and config.persister_workers is not None:
             stream_stores = [recorder.stream_store for recorder in self.recorders]
             for persister_config in config.persister_workers:
-
                 persister_worker = PersistenceWorker(lock=self.lock,
                                                      interval=persister_config.interval,
                                                      recorder_store=self.recorder_store,
@@ -133,8 +132,6 @@ class Recorder:
                                                                plot_store=self.plot_store, config=config))
             self.real_time_workers.append(RealTimeVisualizer(self.lock, self.recorder_store, self.real_time_store,
                                                              self.plot_store, config))
-
-
 
     @property
     def is_recording(self) -> bool:
@@ -238,7 +235,6 @@ class Recorder:
                 train_ssvep_classifier(self.config, self.get_file_path())
             else:
                 raise ValueError(f'Unsupported training type: {train_type}')
-
 
     def complete_recording(self, file_path: Union[str, None] = None) -> Tuple[Union[RawArray, None], RecordingInfo]:
         if self.is_recording:

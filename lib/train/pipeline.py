@@ -8,7 +8,7 @@ from sklearn.base import BaseEstimator, TransformerMixin
 from numpy import ndarray
 import numpy as np
 from sklearn.svm import SVC
-from pyriemann.classification import MDM, SVC as R_SVC, FgMDM
+from pyriemann.classification import MDM, SVC as R_SVC
 from pyriemann.estimation import XdawnCovariances
 from lib.preprocess.algorithms.utils import filterbank
 from lib.preprocess.algorithms.cca import ECCA, SCCA_canoncorr
