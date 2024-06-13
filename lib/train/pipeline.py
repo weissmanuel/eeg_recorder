@@ -7,13 +7,27 @@ from pathlib import Path
 from sklearn.base import BaseEstimator, TransformerMixin
 from numpy import ndarray
 import numpy as np
+from sklearn.svm import SVC
+from pyriemann.classification import MDM, SVC as R_SVC, FgMDM
+from pyriemann.estimation import XdawnCovariances
+from lib.preprocess.algorithms.utils import filterbank
+from lib.preprocess.algorithms.cca import ECCA, SCCA_canoncorr
+from lib.preprocess.algorithms.trca import MSCCA_and_MSETRCA
+from lib.utils import config_to_primitive
 
 
 class PipelineSteps(Enum):
-    RANDOM_FOREST = 'RANDOM_FOREST'
     CHANNEL_RESHAPE = 'CHANNEL_RESHAPE'
     FFT = 'FFT'
-
+    FILTERBANK = 'FILTERBANK'
+    XDAWN = 'XDAWN'
+    RANDOM_FOREST = 'RANDOM_FOREST'
+    SVM = 'SVM'
+    R_SVM = 'R_SVM'
+    MDM = 'MDM'
+    CCA = 'CCA'
+    ECCA = 'ECCA'
+    MSCCA_AND_MSETRCA = 'MSCCA_AND_MSETRCA'
 
     @staticmethod
     def from_str(label: str):
@@ -21,6 +35,7 @@ class PipelineSteps(Enum):
             return PipelineSteps[label.upper()]
         except KeyError:
             raise ValueError(f'Unknown pipeline step: {label}')
+
 
 class FFT(BaseEstimator, TransformerMixin):
 
@@ -103,6 +118,22 @@ class ThresholdingDecoder(BaseEstimator, TransformerMixin):
         return np.array([most_prominent_frequency])
 
 
+class Filterbank(BaseEstimator, TransformerMixin):
+
+    def __init__(self, sfreq: float):
+        self.sfreq = sfreq
+
+    def fit(self, X, y=None):
+        return self
+
+    def transform(self, X: ndarray):
+        result = [filterbank(self.sfreq, trial) for trial in X]
+        return np.array(result)
+
+    def fit_transform(self, X, y=None, **fit_params):
+        return self.fit(X, y).transform(X)
+
+
 def build_pipeline(steps: List[Dict]) -> Pipeline:
     steps = get_pipeline_steps(steps)
     return make_pipeline(*steps)
@@ -110,13 +141,30 @@ def build_pipeline(steps: List[Dict]) -> Pipeline:
 
 def get_pipeline_step(step: PipelineSteps | str, **kwargs):
     step = check_step_type(step)
+    kwargs = config_to_primitive(kwargs)
     match step:
-        case PipelineSteps.RANDOM_FOREST:
-            return RandomForestClassifier(**kwargs)
         case PipelineSteps.CHANNEL_RESHAPE:
             return ChannelReshape()
         case PipelineSteps.FFT:
             return FFT()
+        case PipelineSteps.FILTERBANK:
+            return Filterbank(**kwargs)
+        case PipelineSteps.XDAWN:
+            return XdawnCovariances(**kwargs)
+        case PipelineSteps.RANDOM_FOREST:
+            return RandomForestClassifier(**kwargs)
+        case PipelineSteps.SVM:
+            return SVC(**kwargs)
+        case PipelineSteps.R_SVM:
+            return R_SVC(**kwargs)
+        case PipelineSteps.MDM:
+            return MDM()
+        case PipelineSteps.CCA:
+            return SCCA_canoncorr(**kwargs)
+        case PipelineSteps.ECCA:
+            return ECCA(**kwargs)
+        case PipelineSteps.MSCCA_AND_MSETRCA:
+            return MSCCA_and_MSETRCA(**kwargs)
         case _:
             raise ValueError(f'Unknown pipeline step: {step}')
 

@@ -29,3 +29,12 @@ class RawNotchFilter(RawPreprocessor):
         raw.notch_filter(self.freqs, method='iir')
         return raw
 
+
+class Resample(RawPreprocessor):
+
+    def __init__(self, sfreq: float):
+        self.sfreq = sfreq
+
+    def preprocess(self, raw: BaseRaw) -> BaseRaw:
+        raw.resample(sfreq=self.sfreq)
+        return raw

@@ -31,7 +31,6 @@ from omegaconf import DictConfig
 from mne.io import RawArray
 import mne
 from mne import Info
-from lib.preprocess.pipeline import CustomScaler
 from lib.preprocess.data_preprocess import get_preprocessors, Preprocessor
 from sklearn.preprocessing import MinMaxScaler
 from collections import deque
