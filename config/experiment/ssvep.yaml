@@ -27,6 +27,6 @@ training:
       kwargs: {}
 
 decoding:
-#  type: 'model' # threshold, model
-  type: 'threshold' # threshold, model
+  type: 'model' # threshold, model
+#  type: 'threshold' # threshold, model
   decoder_path: ${experiment.training.pipeline_path}

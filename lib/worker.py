@@ -429,6 +429,7 @@ class RealTimeSSVEPDecoder(RealTimeWorker):
         # data = self.notch_filter(data)
         # data = self.butter_bandpass_filter(data)
         raw = create_raw(data=data, info=info)
+        raw = raw.pick_types(eeg=True)
         raw = self.preprocess_raw(raw)
         data = raw.get_data()
         # scaler = MinMaxScaler()
