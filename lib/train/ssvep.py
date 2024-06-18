@@ -33,11 +33,13 @@ def train_ssvep_classifier(config: DictConfig, file_path: str):
     sfreq = config.headset.sfreq
     signal_duration_seconds = config.experiment.signal_duration_seconds
     window_size_seconds = config.experiment.window_size_seconds
+    window_shift_seconds = config.experiment.window_shift_seconds
 
 
     raw = load_raw(file_path)
     raw = RawNotchFilter(freqs=50).preprocess(raw)
     raw = RawFilter(2, 30).preprocess(raw)
+    raw = raw.set_eeg_reference(ref_channels='average', projection=False)
     # raw = Resample(sfreq=sfreq).preprocess(raw)
 
     epochs = generate_epochs(raw, event_mapping=get_events_mapping(), t_min=0, t_max=signal_duration_seconds)
@@ -53,9 +55,8 @@ def train_ssvep_classifier(config: DictConfig, file_path: str):
 
     splitter = EpochWindowSplitter(sfreq=sfreq,
                                    window_size_seconds=window_size_seconds,
-                                   window_shift_seconds=0.1,
-                                   use_averaging=False,
-                                   average_size=5)
+                                   window_shift_seconds=window_shift_seconds,
+                                   use_averaging=False,)
 
     X_train, y_train = splitter(train_epochs.get_data(), train_epochs.events[:, 2])
     X_train, y_train = sk_shuffle(X_train, y_train)
@@ -67,4 +68,5 @@ def train_ssvep_classifier(config: DictConfig, file_path: str):
     save_pipeline(pipeline, config.experiment.training.pipeline_path)
 
     y_pred = pipeline.predict(X_test)
+    y_pred_proba = pipeline.predict_proba(X_test)
     print(classification_report(y_test, y_pred))

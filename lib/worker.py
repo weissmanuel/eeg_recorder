@@ -358,7 +358,8 @@ class RealTimeSSVEPDecoder(RealTimeWorker):
                  recorder_store: RecorderStore,
                  real_time_store: RealTimeStore,
                  plot_store: PlotStore,
-                 config: DictConfig
+                 config: DictConfig,
+                 spectral_average: int | None = None
                  ):
         super().__init__(lock, recorder_store, real_time_store)
 
@@ -370,7 +371,9 @@ class RealTimeSSVEPDecoder(RealTimeWorker):
 
         self.config = config
 
-        self.queue = deque(maxlen=5)
+        self.spectral_average = spectral_average
+        self.spectral_queue = deque(maxlen=spectral_average) if spectral_average is not None else None
+
         self.decoder = self.init_decoder()
 
     def init_decoder(self) -> Pipeline | BaseEstimator:
@@ -433,6 +436,7 @@ class RealTimeSSVEPDecoder(RealTimeWorker):
         return data
 
     def spectral_analysis(self, data: ndarray, channel: int = 0) -> Tuple[ndarray, ndarray]:
+
         data = data[channel]
 
         num_samples = data.shape[-1]
@@ -441,6 +445,10 @@ class RealTimeSSVEPDecoder(RealTimeWorker):
 
         frequencies = frequencies[:num_samples // 2]
         magnitudes = 2.0 / num_samples * np.abs(fft_data[:num_samples // 2])
+
+        if self.spectral_average is not None:
+            self.spectral_queue.append(magnitudes)
+            magnitudes = np.mean(self.spectral_queue, axis=0)
 
         return frequencies, magnitudes
 
@@ -466,10 +474,6 @@ class RealTimeSSVEPDecoder(RealTimeWorker):
         # return np.array(range(len(data[0]))), data[0], 0
         data = self.preprocess_data(data)
         self.assign_time_data(data)
-        self.queue.append(data)
-        data = list(self.queue)
-        data = np.array(data)
-        data = np.mean(data, axis=0)
         freqs, amps = self.spectral_analysis(data, self.real_time_store.channel)
         data = np.expand_dims(data, axis=0)
         result = self.predict(data)

@@ -6,10 +6,10 @@ Base class of SSVEP recognition method
 from abc import ABC, abstractmethod
 from typing import Union, Optional, Dict, List, Tuple, Callable
 from numpy import ndarray
-from sklearn.base import BaseEstimator, TransformerMixin
+from sklearn.base import BaseEstimator, ClassifierMixin
 
 
-class BaseModel(ABC, BaseEstimator, TransformerMixin):
+class BaseModel(ABC, BaseEstimator, ClassifierMixin):
     """
     BaseModel
     """

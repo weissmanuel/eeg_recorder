@@ -14,6 +14,7 @@ persister_workers: null
 
 labels: [10, 15, 20, 25]
 window_size_seconds: 1
+window_shift_seconds: 0.1
 signal_duration_seconds: 10
 
 training:
@@ -21,24 +22,43 @@ training:
   type: 'ssvep'
   pipeline_path: './data/models/ssvep_pipeline.pth'
   pipeline:
-     - name: 'filterbank'
-       kwargs:
-         sfreq: ${headset.sfreq}
-     - name: 'CCA'
-#     - name: 'ECCA'
-#     - name: 'MSCCA_AND_MSETRCA'
-       kwargs:
-          sfreq: ${headset.sfreq}
-          target_frequencies: ${experiment.labels}
-          signal_duration_seconds: ${experiment.window_size_seconds}
-          n_jobs: null
+    - name: 'filterbank'
+      kwargs:
+        sfreq: ${headset.sfreq}
+#    - name: 'CCA'
+##     - name: 'ECCA'
+##     - name: 'MSCCA_AND_MSETRCA'
+#      kwargs:
+#        sfreq: ${headset.sfreq}
+#        target_frequencies: ${experiment.labels}
+#        signal_duration_seconds: ${experiment.window_size_seconds}
+#        n_jobs: 4
+    - name: 'consecutive_majority_vote_classifier'
+      kwargs:
+        window_size: 5
+        base_classifier:
+          name: 'CCA'
+          kwargs:
+            sfreq: ${headset.sfreq}
+            target_frequencies: ${experiment.labels}
+            signal_duration_seconds: ${experiment.window_size_seconds}
+            n_jobs: null
 
 #    - name: 'fft'
 #      kwargs: {}
+##    - name: 'averager'
+##      kwargs:
+##        window_size: 2
 #    - name: 'channel_reshape'
 #      kwargs: {}
-#    - name: 'random_forest'
-#      kwargs: {}
+##    - name: 'random_forest'
+##      kwargs: {}
+#    - name: 'consecutive_majority_vote_classifier'
+#      kwargs:
+#        window_size: 5
+#        base_classifier:
+#          name: 'random_forest'
+#          kwargs: {}
 
 decoding:
   type: 'model' # threshold, model
