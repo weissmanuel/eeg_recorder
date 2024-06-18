@@ -1,7 +1,7 @@
 from omegaconf import DictConfig
 from lib.mne import load_raw, generate_epochs
 from pathlib import Path
-from lib.preprocess.raw_preprocess import RawNotchFilter
+from lib.preprocess.raw_preprocess import RawNotchFilter, RawFilter
 from lib.preprocess.epoch_preprocess import EpochFilter
 from lib.preprocess.data_preprocess import EpochWindowSplitter
 from sklearn.pipeline import Pipeline
@@ -37,6 +37,7 @@ def train_ssvep_classifier(config: DictConfig, file_path: str):
 
     raw = load_raw(file_path)
     raw = RawNotchFilter(freqs=50).preprocess(raw)
+    raw = RawFilter(2, 30).preprocess(raw)
     # raw = Resample(sfreq=sfreq).preprocess(raw)
 
     epochs = generate_epochs(raw, event_mapping=get_events_mapping(), t_min=0, t_max=signal_duration_seconds)

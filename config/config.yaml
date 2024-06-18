@@ -19,11 +19,11 @@ persister: ${experiment.persister}
 persisting_mode: ${experiment.persisting_mode}
 persister_workers: ${experiment.persister_workers}
 
-#preprocessors: []
-preprocessors:
-  - name: 'eeg_scaler'
-    scale: 1e-6
-    channel_types: ['eeg']
+preprocessors: []
+#preprocessors:
+#  - name: 'eeg_scaler'
+#    scale: 1e-6
+#    channel_types: ['eeg']
 
 
 real_time:

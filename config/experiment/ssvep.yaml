@@ -31,7 +31,7 @@ training:
           sfreq: ${headset.sfreq}
           target_frequencies: ${experiment.labels}
           signal_duration_seconds: ${experiment.window_size_seconds}
-          n_jobs: 4
+          n_jobs: null
 
 #    - name: 'fft'
 #      kwargs: {}
