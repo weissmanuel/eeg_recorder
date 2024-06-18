@@ -30,7 +30,7 @@ def create_raw(data: ndarray, info: Info) -> RawArray:
 
 def load_raw(file_path: str) -> BaseRaw:
     raw = mne.io.read_raw_fif(file_path, preload=True, verbose=False)
-    raw = raw.pick_types(eeg=True)
+    raw = raw.pick(picks=['eeg'])
     return raw
 
 
