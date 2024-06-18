@@ -313,20 +313,23 @@ class RealTimeRecorder(RealTimeWorker):
         return (data.transpose()).tolist()
 
     @staticmethod
-    def generate_data(sample_frequency: float, num_channels: int = 2) -> ndarray:
+    def generate_data(sample_frequency: float, num_channels: int = 2) -> Tuple[ndarray, float]:
         data = []
         timesteps = np.linspace(start=0.0, stop=1.0, num=int(sample_frequency), endpoint=False)
         ch = lambda x: np.sin(2 * np.pi * 10 * x) + 0.5 * np.sin(2 * np.pi * 8 * x) + 0.3 * np.sin(
             2 * np.pi * 10 * x) + 0.5 * np.sin(2 * np.pi * 35 * x) + np.sin(2 * np.pi * 50 * x)
         for i in range(num_channels):
             data.append([ch(t) for t in timesteps])
-        return np.array(data)
+        return np.array(data), local_clock()
 
-    def get_stream_data(self, stream: StreamLSL) -> ndarray | None:
+    def get_stream_data(self, stream: StreamLSL) -> Tuple[ndarray, float] | Tuple[None, None]:
         window_size = stream.n_new_samples / self.real_time_store.sfreq
         if window_size > 0:
             (values, times) = stream.get_data(winsize=window_size)
-            return values
+            last_time = times[-1] if times is not None and len(times) > 0 else local_clock()
+            return values, last_time
+        else:
+            return None, None
 
     def get_data(self, stream: StreamLSL) -> ndarray | None:
         if self.real_time_store.source_id == 'demo':
@@ -342,7 +345,7 @@ class RealTimeRecorder(RealTimeWorker):
 
             self.logger.info(f"Start Real-Time Recording for Stream: {source_id}")
             while self.recorder_store.is_recording:
-                data = self.get_data(stream)
+                data, last_timestep = self.get_data(stream)
                 if data is not None:
                     data = self.prepare_data(data)
                     self.lock.acquire()
@@ -375,6 +378,7 @@ class RealTimeSSVEPDecoder(RealTimeWorker):
         self.spectral_queue = deque(maxlen=spectral_average) if spectral_average is not None else None
 
         self.decoder = self.init_decoder()
+        self.labels = config.experiment.labels
 
     def init_decoder(self) -> Pipeline | BaseEstimator:
         model_type = self.config.experiment.decoding.type
@@ -430,7 +434,8 @@ class RealTimeSSVEPDecoder(RealTimeWorker):
         raw = create_raw(data=data, info=info)
         raw = raw.pick(picks=['eeg'])
         raw = self.preprocess_raw(raw)
-        data = raw.get_data()
+        self.data = raw.get_data()
+        data = self.data
         # scaler = MinMaxScaler()
         # data = scaler.fit_transform(data)
         return data
@@ -466,7 +471,7 @@ class RealTimeSSVEPDecoder(RealTimeWorker):
     def predict(self, data: ndarray) -> float:
         y_pred = self.decoder.predict(data)
         if len(y_pred) == 1:
-            return y_pred[0]
+            return self.labels[int(y_pred[0])]
         else:
             raise ValueError('Currently only one prediction is supported')
 
@@ -491,7 +496,9 @@ class RealTimeSSVEPDecoder(RealTimeWorker):
             if data is not None:
                 data = self.reshape_data(data)
                 self.process_data(data)
-            time.sleep(1 / 20)
+            else:
+                print(f"in front{np.random.randint(0, 100)}")
+            time.sleep(1 / 30)
 
 
 class RealTimeVisualizer(RealTimeWorker):

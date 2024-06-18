@@ -1,7 +1,7 @@
 from omegaconf import DictConfig
 from lib.mne import load_raw, generate_epochs
 from pathlib import Path
-from lib.preprocess.raw_preprocess import RawNotchFilter, RawFilter
+from lib.preprocess.raw_preprocess import RawNotchFilter, RawFilter, Resample
 from lib.preprocess.epoch_preprocess import EpochFilter
 from lib.preprocess.data_preprocess import EpochWindowSplitter
 from sklearn.pipeline import Pipeline
@@ -34,16 +34,18 @@ def train_ssvep_classifier(config: DictConfig, file_path: str):
     signal_duration_seconds = config.experiment.signal_duration_seconds
     window_size_seconds = config.experiment.window_size_seconds
     window_shift_seconds = config.experiment.window_shift_seconds
+    event_offset_seconds = config.experiment.event_offset_seconds
 
 
     raw = load_raw(file_path)
     raw = RawNotchFilter(freqs=50).preprocess(raw)
-    raw = RawFilter(2, 30).preprocess(raw)
+    raw = RawFilter(9, 23).preprocess(raw)
     raw = raw.set_eeg_reference(ref_channels='average', projection=False)
-    # raw = Resample(sfreq=sfreq).preprocess(raw)
+    raw = Resample(sfreq=sfreq).preprocess(raw)
 
-    epochs = generate_epochs(raw, event_mapping=get_events_mapping(), t_min=0, t_max=signal_duration_seconds)
-    epochs = EpochFilter(low_freq=1, high_freq=30).preprocess(epochs)
+    epochs = generate_epochs(raw, event_mapping=get_events_mapping(),
+                             t_min=0, t_max=signal_duration_seconds)
+    epochs = EpochFilter(low_freq=9, high_freq=23).preprocess(epochs)
 
     num_classes = len(config.experiment.labels)
     num_events = len(epochs.events)
@@ -58,9 +60,9 @@ def train_ssvep_classifier(config: DictConfig, file_path: str):
                                    window_shift_seconds=window_shift_seconds,
                                    use_averaging=False,)
 
-    X_train, y_train = splitter(train_epochs.get_data(), train_epochs.events[:, 2])
+    X_train, y_train = splitter(train_epochs.get_data(copy=True), train_epochs.events[:, 2])
     X_train, y_train = sk_shuffle(X_train, y_train)
-    X_test, y_test = splitter(test_epochs.get_data(), test_epochs.events[:, 2])
+    X_test, y_test = splitter(test_epochs.get_data(copy=True), test_epochs.events[:, 2])
 
     pipeline: Pipeline = build_pipeline(config.experiment.training.pipeline)
     pipeline.fit(X_train, y_train)
