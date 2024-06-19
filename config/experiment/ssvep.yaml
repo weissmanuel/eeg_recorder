@@ -1,0 +1,67 @@
+
+sources:
+  - - ${headset.source_id}
+    - 'EEG'
+  - - 'ssvep_train_markers'
+    - 'MARKER'
+
+persister: 'mne_raw_persister'
+persisting_mode: 'replace'
+persister_workers: null
+#persister_workers:
+#  - name: 'default'
+#    interval: 30
+
+labels: [9, 11, 13, 15]
+window_size_seconds: 5
+window_shift_seconds: 0.1
+signal_duration_seconds: 15
+event_offset_seconds: 2
+
+training:
+  enabled: True
+  type: 'ssvep'
+  pipeline_path: './data/models/ssvep_pipeline.pth'
+  pipeline:
+#    - name: 'filterbank'
+#      kwargs:
+#        sfreq: ${headset.sfreq}
+##    - name: 'CCA'
+###     - name: 'ECCA'
+###     - name: 'MSCCA_AND_MSETRCA'
+##      kwargs:
+##        sfreq: ${headset.sfreq}
+##        target_frequencies: ${experiment.labels}
+##        signal_duration_seconds: ${experiment.window_size_seconds}
+##        n_jobs: 4
+#    - name: 'consecutive_majority_vote_classifier'
+#      kwargs:
+#        window_size: 5
+#        base_classifier:
+#          name: 'CCA'
+#          kwargs:
+#            sfreq: ${headset.sfreq}
+#            target_frequencies: ${experiment.labels}
+#            signal_duration_seconds: ${experiment.window_size_seconds}
+#            n_jobs: null
+
+    - name: 'fft'
+      kwargs: {}
+#    - name: 'averager'
+#      kwargs:
+#        window_size: 2
+    - name: 'channel_reshape'
+      kwargs: {}
+#    - name: 'random_forest'
+#      kwargs: {}
+    - name: 'consecutive_majority_vote_classifier'
+      kwargs:
+        window_size: 5
+        base_classifier:
+          name: 'random_forest'
+          kwargs: {}
+
+decoding:
+  type: 'model' # threshold, model
+#  type: 'threshold' # threshold, model
+  decoder_path: ${experiment.training.pipeline_path}

@@ -1,0 +1,20 @@
+
+sources: []
+
+persister: null
+persisting_mode: 'replace'
+persister_workers: null
+#persister_workers:
+#  - name: 'default'
+#    interval: 30
+
+labels: [10, 15, 20, 25]
+window_size_seconds: 1
+signal_duration_seconds: 10
+
+training: null
+
+decoding:
+  type: 'threshold' # threshold, model
+#  type: 'threshold' # threshold, model
+  decoder_path: ${experiment.training.pipeline_path}

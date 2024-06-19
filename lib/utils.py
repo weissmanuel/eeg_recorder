@@ -19,4 +19,6 @@ def format_seconds(seconds: float) -> str:
 def config_to_primitive(cfg: any) -> any:
     if isinstance(cfg, (DictConfig, ListConfig)):
         return OmegaConf.to_container(cfg, resolve=True)
+    if isinstance(cfg, dict):
+        return {k: config_to_primitive(v) for k, v in cfg.items()}
     return cfg

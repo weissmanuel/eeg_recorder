@@ -1,20 +1,17 @@
-import mne
 from mne.io import RawArray
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from pathlib import Path
 import logging
 from typing import Tuple, Union, List
-from numpy import ndarray
 import time
 from lib.utils import format_seconds
 from omegaconf import DictConfig
-from lib.utils import config_to_primitive
-from mne import Info
-from lib.preprocess import get_preprocessors, Preprocessor
-from multiprocessing import Manager
-from lib.worker import RecordingWorker, PersistenceWorker, Worker
-from lib.store import StreamType, StreamStore, RecorderStore
-from lib.persist import MneRawPersister, PersistingMode
+from multiprocessing import Manager, Lock
+from lib.worker import RecordingWorker, PersistenceWorker, Worker, RealTimeRecorder, RealTimeWorker, \
+    RealTimeSSVEPDecoder, RealTimeVisualizer
+from lib.store import StreamType, StreamStore, RecorderStore, RealTimeStore, PlotStore
+from lib.persist import Persister, get_persister, PersistingMode
+from lib.train.ssvep import train_ssvep_classifier
 
 
 class InletInfo:
@@ -72,7 +69,11 @@ class Recorder:
     sources: List[Tuple[str, str]] = []
     recorders: List[RecordingWorker] = []
 
+    real_time_workers: List[RealTimeWorker] = []
+
     recorder_store: RecorderStore
+    real_time_store: RealTimeStore
+    plot_store: PlotStore | None = None
 
     safety_offset_seconds: float = 1.0
 
@@ -80,7 +81,7 @@ class Recorder:
     logger = logging.getLogger(__name__)
 
     manager: Manager
-    persister: MneRawPersister
+    persister: Persister | None
     persister_workers: List[PersistenceWorker] = []
 
     def __init__(self,
@@ -95,9 +96,13 @@ class Recorder:
         self.buffer_size_seconds = buffer_size_seconds
 
         self.manager = Manager()
-        self.persister = MneRawPersister(config=config)
+        self.recorder_lock = Lock()
+        self.visualizer_lock = Lock()
+        self.persister = get_persister(config.persister, config)
         self.initialise_recorders()
         self.initialise_persisters(config)
+        self.initialise_real_time(config)
+        self.logger.info("Recorder Initialised")
 
     def initialise_recorders(self):
         self.recorder_store = RecorderStore(self.manager)
@@ -105,19 +110,30 @@ class Recorder:
             source_id, stream_type = source
             stream_type = StreamType.from_str(stream_type)
             stream_store = StreamStore(self.manager, source_id, stream_type)
-            recorder = RecordingWorker(self.recorder_store, stream_store, self.buffer_size_seconds)
+            recorder = RecordingWorker(self.recorder_lock, self.recorder_store, stream_store, self.buffer_size_seconds)
             self.recorders.append(recorder)
 
     def initialise_persisters(self, config: DictConfig):
         if 'persister_workers' in config and config.persister_workers is not None:
             stream_stores = [recorder.stream_store for recorder in self.recorders]
             for persister_config in config.persister_workers:
-
-                persister_worker = PersistenceWorker(interval=persister_config.interval,
+                persister_worker = PersistenceWorker(lock=self.recorder_lock,
+                                                     interval=persister_config.interval,
                                                      recorder_store=self.recorder_store,
                                                      stream_stores=stream_stores,
                                                      persister=self.persister)
                 self.persister_workers.append(persister_worker)
+
+    def initialise_real_time(self, config: DictConfig):
+        if 'real_time' in config and config.real_time is not None and config.real_time.enabled:
+            self.real_time_store = RealTimeStore.from_config(config.real_time, self.manager)
+            self.plot_store = PlotStore(self.manager)
+            self.real_time_workers.append(RealTimeRecorder(self.recorder_lock, self.recorder_store, self.real_time_store))
+            self.real_time_workers.append(RealTimeSSVEPDecoder(self.recorder_lock, self.recorder_store,
+                                                               self.real_time_store, visualizer_lock=self.visualizer_lock,
+                                                               plot_store=self.plot_store, config=config))
+            self.real_time_workers.append(RealTimeVisualizer(self.recorder_lock, self.recorder_store, self.real_time_store,
+                                                             self.plot_store, config))
 
     @property
     def is_recording(self) -> bool:
@@ -132,22 +148,28 @@ class Recorder:
         self.recorder_store.reset()
         for recorder in self.recorders:
             recorder.reset()
-        if self.persister.persisting_mode == PersistingMode.CONTINUOUS:
+        if self.persister is not None and self.persister.persisting_mode == PersistingMode.CONTINUOUS:
             self.persister.delete()
 
-    def get_workers(self) -> List[Worker]:
+    def get_recording_workers(self) -> List[Worker]:
         return self.recorders + self.persister_workers
 
-    def start(self):
+    def get_inference_workers(self) -> List[Worker]:
+        return self.real_time_workers
+
+    def get_workers(self) -> List[Worker]:
+        return self.recorders + self.persister_workers + self.real_time_workers
+
+    def start_recording(self):
         if not self.is_recording:
             self.reset_recording()
             self.logger.info("Starting Recording")
             self.recorder_store.start()
 
-            for worker in self.get_workers():
+            for worker in self.get_recording_workers():
                 worker.start()
 
-    def stop(self):
+    def stop_recording(self):
         if self.is_recording:
             self.logger.info("Stopping Recording")
             self.recorder_store.stop()
@@ -156,6 +178,29 @@ class Recorder:
                 time.sleep(1)
             self.summary()
             self.logger.info("Recording Stopped")
+
+    def start_inference(self):
+        if not self.is_recording:
+            self.reset_recording()
+            self.logger.info("Starting Inference")
+            self.recorder_store.start()
+            for worker in self.get_inference_workers():
+                worker.start()
+
+    def stop_inference(self):
+        if self.is_recording:
+            self.logger.info("Stopping Inference")
+            self.recorder_store.stop()
+            for worker in self.get_inference_workers():
+                worker.stop()
+            self.logger.info("Inference Stopped")
+
+    def kill(self):
+        for worker in self.get_workers():
+            try:
+                worker.stop()
+            except Exception as e:
+                pass
 
     def get_signal_recorder(self) -> RecordingWorker:
         return next((recorder for recorder in self.recorders if recorder.stream_type.is_signal), None)
@@ -172,56 +217,6 @@ class Recorder:
     def filter_recorders(self, stream_type: StreamType) -> List[RecordingWorker]:
         return [recorder for recorder in self.recorders if recorder.stream_type == stream_type]
 
-    def create_mne_info(self) -> Info:
-        signal_recorder = self.get_signal_recorder()
-        info = signal_recorder.stream_store.stream_info.copy()
-        if 'channel_names_mapping' in self.config.headset:
-            info.rename_channels(config_to_primitive(self.config.headset.channel_names_mapping))
-        if 'channel_types_mapping' in self.config.headset:
-            info.set_channel_types(config_to_primitive(self.config.headset.channel_types_mapping))
-        if 'montage' in self.config.headset:
-            montage = mne.channels.make_standard_montage('standard_1020')
-            info.set_montage(montage)
-        return info
-
-    def preprocess(self, info: Info, data: ndarray) -> ndarray:
-        preprocessors: List[Preprocessor] = get_preprocessors(self.config.preprocessors)
-        if preprocessors is not None and len(preprocessors) > 0:
-            for preprocessor in preprocessors:
-                data = preprocessor(info, data)
-        return data
-
-    def add_annotations(self, raw: RawArray, marker_store: StreamStore) -> RawArray:
-        if marker_store is not None and marker_store.stream_type == StreamType.MARKER and marker_store.n_samples > 0:
-            signal_recorder: RecordingWorker = self.get_signal_recorder()
-            first_signal_lsl_seconds = signal_recorder.stream_store.first_sample_lsl_seconds
-            marker_values = marker_store.data
-            marker_times = marker_store.times - first_signal_lsl_seconds
-            raw.set_annotations(mne.Annotations(onset=marker_times, duration=[0.05] * len(marker_times),
-                                                description=marker_values.astype(str)))
-        return raw
-
-    def get_raw(self):
-        assert not self.is_recording, "You cannot generate an MNE Raw object while recording"
-        signal_recorder: RecordingWorker = self.get_signal_recorder()
-        signal_store: StreamStore = signal_recorder.stream_store
-        signal = signal_store.data
-        assert signal_store.n_samples > 0, "No signal data recorded"
-        self.logger.info("Generating MNE Raw Object")
-        info = self.create_mne_info()
-        signal = self.preprocess(info, signal)
-        raw = RawArray(signal, info)
-
-        for recorder in self.filter_recorders(StreamType.MARKER):
-            raw = self.add_annotations(raw, recorder.stream_store)
-
-        raw.set_meas_date(signal_store.first_sample_datetime.replace(tzinfo=timezone.utc).timestamp())
-
-        if len(raw.info['device_info']) == 0:
-            raw.info['device_info'] = None
-        self.logger.info("MNE Raw Object Generated")
-        return raw
-
     def get_file_path(self):
         if 'recording' in self.config:
             subject = self.config.recording.subject
@@ -232,20 +227,29 @@ class Recorder:
     def save(self, file_path: Union[str, None] = None) -> Tuple[RawArray, Path]:
         assert not self.is_recording, "You cannot generate an MNE Raw object while recording"
         stores = [recorder.stream_store for recorder in self.recorders]
-        return self.persister.save(stores, file_path)
+        return self.persister.save(stores, file_path=file_path)
 
-    def complete(self, file_path: Union[str, None] = None) -> Tuple[Union[RawArray, None], RecordingInfo]:
+    def start_training(self):
+        if self.config.experiment.training is not None and self.config.experiment.training.enabled:
+            training_cfg = self.config.experiment.training
+            train_type = training_cfg.type
+            if train_type == 'ssvep':
+                train_ssvep_classifier(self.config, self.get_file_path())
+            else:
+                raise ValueError(f'Unsupported training type: {train_type}')
+
+    def complete_recording(self, file_path: Union[str, None] = None) -> Tuple[Union[RawArray, None], RecordingInfo]:
         if self.is_recording:
-            self.stop()
-            raw, path = self.save(file_path)
-            info = self.get_info()
-            info.file_path = path
-            self.logger.info("Recording Completed")
-            for worker in self.get_workers():
-                worker.stop()
-            return raw, info
-        else:
-            return None, RecordingInfo()
+            self.stop_recording()
+            if self.persister is not None:
+                raw, path = self.save(file_path)
+                info = self.get_info()
+                info.file_path = path
+                self.logger.info("Recording Completed")
+                for worker in self.get_recording_workers():
+                    worker.stop()
+                return raw, info
+        return None, RecordingInfo()
 
     def get_stream_info(self, recorder: RecordingWorker) -> InletInfo:
         stream_store = recorder.stream_store

@@ -1,7 +1,7 @@
 import mne
 from mne import Info
 from mne.io import RawArray
-from lib.preprocess import get_preprocessors, Preprocessor
+from lib.preprocess.data_preprocess import get_preprocessors, Preprocessor
 from numpy import ndarray
 from lib.utils import config_to_primitive
 from omegaconf import DictConfig
@@ -12,6 +12,7 @@ from pathlib import Path
 import logging
 from datetime import timezone
 from enum import Enum
+
 
 class PersistingMode(Enum):
     REPLACE = "REPLACE"
@@ -24,9 +25,15 @@ class PersistingMode(Enum):
 
 class Persister(ABC):
     logger = logging.getLogger(__name__)
+    config: DictConfig
+    persisting_mode: PersistingMode
 
     @abstractmethod
-    def save(self, stores: List[StreamStore]) -> Union[any, Union[str, Path]]:
+    def save(self, stores: List[StreamStore], **kwargs) -> Union[any, Union[str, Path]]:
+        pass
+
+    @abstractmethod
+    def delete(self):
         pass
 
 
@@ -64,7 +71,7 @@ class MneRawPersister(Persister):
         preprocessors: List[Preprocessor] = get_preprocessors(self.config.preprocessors)
         if preprocessors is not None and len(preprocessors) > 0:
             for preprocessor in preprocessors:
-                data = preprocessor(info, data)
+                data = preprocessor(data, info=info)
         return data
 
     def add_annotations(self,
@@ -92,7 +99,6 @@ class MneRawPersister(Persister):
         if intermediate_save:
             orig_state = signal_store.copy()
             signal, _ = signal_store.get_and_clear_data_times()
-            new_state = signal_store
             signal_store = orig_state
         else:
             signal = signal_store.data
@@ -168,3 +174,12 @@ class MneRawPersister(Persister):
             self.logger.info(f"Deleted Existing File: {file_path}")
         except FileNotFoundError:
             self.logger.info(f"Failed to delete file: {file_path}")
+
+
+def get_persister(name: str | None, config: DictConfig) -> Persister | None:
+    if name is None:
+        return None
+    if name == 'mne_raw_persister':
+        return MneRawPersister(config)
+    else:
+        raise ValueError(f"Persister {name} not found")
