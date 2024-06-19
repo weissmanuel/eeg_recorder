@@ -96,7 +96,8 @@ class Recorder:
         self.buffer_size_seconds = buffer_size_seconds
 
         self.manager = Manager()
-        self.lock = Lock()
+        self.recorder_lock = Lock()
+        self.visualizer_lock = Lock()
         self.persister = get_persister(config.persister, config)
         self.initialise_recorders()
         self.initialise_persisters(config)
@@ -109,14 +110,14 @@ class Recorder:
             source_id, stream_type = source
             stream_type = StreamType.from_str(stream_type)
             stream_store = StreamStore(self.manager, source_id, stream_type)
-            recorder = RecordingWorker(self.lock, self.recorder_store, stream_store, self.buffer_size_seconds)
+            recorder = RecordingWorker(self.recorder_lock, self.recorder_store, stream_store, self.buffer_size_seconds)
             self.recorders.append(recorder)
 
     def initialise_persisters(self, config: DictConfig):
         if 'persister_workers' in config and config.persister_workers is not None:
             stream_stores = [recorder.stream_store for recorder in self.recorders]
             for persister_config in config.persister_workers:
-                persister_worker = PersistenceWorker(lock=self.lock,
+                persister_worker = PersistenceWorker(lock=self.recorder_lock,
                                                      interval=persister_config.interval,
                                                      recorder_store=self.recorder_store,
                                                      stream_stores=stream_stores,
@@ -127,10 +128,11 @@ class Recorder:
         if 'real_time' in config and config.real_time is not None and config.real_time.enabled:
             self.real_time_store = RealTimeStore.from_config(config.real_time, self.manager)
             self.plot_store = PlotStore(self.manager)
-            self.real_time_workers.append(RealTimeRecorder(self.lock, self.recorder_store, self.real_time_store))
-            self.real_time_workers.append(RealTimeSSVEPDecoder(self.lock, self.recorder_store, self.real_time_store,
+            self.real_time_workers.append(RealTimeRecorder(self.recorder_lock, self.recorder_store, self.real_time_store))
+            self.real_time_workers.append(RealTimeSSVEPDecoder(self.recorder_lock, self.recorder_store,
+                                                               self.real_time_store, visualizer_lock=self.visualizer_lock,
                                                                plot_store=self.plot_store, config=config))
-            self.real_time_workers.append(RealTimeVisualizer(self.lock, self.recorder_store, self.real_time_store,
+            self.real_time_workers.append(RealTimeVisualizer(self.recorder_lock, self.recorder_store, self.real_time_store,
                                                              self.plot_store, config))
 
     @property

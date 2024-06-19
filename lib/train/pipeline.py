@@ -248,7 +248,7 @@ class ThresholdingDecoder(BaseEstimator, ClassifierMixin):
             if band_magnitude > max_magnitude:
                 max_magnitude = band_magnitude
                 most_prominent_frequency = target_frequency
-        return np.array([most_prominent_frequency])
+        return np.array([self.target_frequencies.index(most_prominent_frequency)])
 
 
 class Filterbank(BaseEstimator, TransformerMixin):

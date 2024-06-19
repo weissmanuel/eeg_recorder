@@ -431,6 +431,9 @@ class RealTimeStore:
         self._buffer = manager.list([0] * self.buffer_size)
         self._n_new_samples = manager.Value('i', 0)
 
+        self._last_sample_time = manager.Value('d', 0.0)
+        self._last_received_time = manager.Value('d', 0.0)
+
         self.lock = manager.Lock()
 
         self.target_frequencies = target_frequencies if target_frequencies is not None else []
@@ -467,6 +470,22 @@ class RealTimeStore:
     @n_new_samples.setter
     def n_new_samples(self, value: int) -> None:
         self._n_new_samples.value = value
+
+    @property
+    def last_sample_time(self) -> float:
+        return self._last_sample_time.value
+
+    @last_sample_time.setter
+    def last_sample_time(self, value: float) -> None:
+        self._last_sample_time.value = value
+
+    @property
+    def last_received_time(self) -> float:
+        return self._last_received_time.value
+
+    @last_received_time.setter
+    def last_received_time(self, value: float) -> None:
+        self._last_received_time.value = value
 
     def check_first_window_filled(self):
         return self.n_new_samples >= self.window_size
@@ -505,6 +524,13 @@ class RealTimeStore:
         assert len(data) == self.window_size
         return np.array(data)
 
+    def add_times(self, last_sample_time: float, last_received_time: float):
+        self.last_sample_time = last_sample_time
+        self.last_received_time = last_received_time
+
+    def get_times(self) -> Tuple[float, float]:
+        return self.last_sample_time, self.last_received_time
+
 
 class PlotStore:
 
@@ -517,6 +543,10 @@ class PlotStore:
         self._y_freq = manager.list()
 
         self._result = manager.Value('d', 0.0)
+
+        self._last_sample_time = manager.Value('d', 0.0)
+        self._last_received_time = manager.Value('d', 0.0)
+        self._processing_time = manager.Value('d', 0.0)
 
     @property
     def x_time(self) -> List:
@@ -533,6 +563,30 @@ class PlotStore:
     @y_time.setter
     def y_time(self, value: List) -> None:
         self._y_time[:] = value
+
+    @property
+    def last_sample_time(self) -> float:
+        return self._last_sample_time.value
+
+    @last_sample_time.setter
+    def last_sample_time(self, value: float) -> None:
+        self._last_sample_time.value = value
+
+    @property
+    def last_received_time(self) -> float:
+        return self._last_received_time.value
+
+    @last_received_time.setter
+    def last_received_time(self, value: float) -> None:
+        self._last_received_time.value = value
+
+    @property
+    def processing_time(self) -> float:
+        return self._processing_time.value
+
+    @processing_time.setter
+    def processing_time(self, value: float) -> None:
+        self._processing_time.value = value
 
     def get_time_data(self):
         return self.x_time, self.y_time
@@ -574,4 +628,22 @@ class PlotStore:
     def result(self, value: float):
         self._result.value = value
 
+    def get_times(self) -> Tuple[float, float, float]:
+        return self.last_sample_time, self.last_received_time, self.processing_time
 
+    def set_times(self, last_sample_time: float, last_received_time: float, processing_time: float):
+        self.last_sample_time = last_sample_time
+        self.last_received_time = last_received_time
+        self.processing_time = processing_time
+
+    def get_time_shift(self) -> float:
+        return self.last_received_time - self.last_sample_time
+
+    def get_processing_delay(self) -> float:
+        return self.processing_time - self.last_received_time
+
+    def get_total_delay(self) -> float:
+        return self.processing_time - self.last_sample_time
+
+    def get_delays(self) -> Tuple[float, float, float]:
+        return self.get_time_shift(), self.get_processing_delay(), self.get_total_delay()

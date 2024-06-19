@@ -350,6 +350,7 @@ class RealTimeRecorder(RealTimeWorker):
                     data = self.prepare_data(data)
                     self.lock.acquire()
                     self.real_time_store.add_data(data)
+                    self.real_time_store.add_times(last_timestep, local_clock())
                     self.lock.release()
                 time.sleep(1 if source_id == 'demo' else 0.01)
 
@@ -357,14 +358,15 @@ class RealTimeRecorder(RealTimeWorker):
 class RealTimeSSVEPDecoder(RealTimeWorker):
 
     def __init__(self,
-                 lock: Lock,
+                 recorder_lock: Lock,
                  recorder_store: RecorderStore,
                  real_time_store: RealTimeStore,
+                 visualizer_lock: Lock,
                  plot_store: PlotStore,
                  config: DictConfig,
                  spectral_average: int | None = None
                  ):
-        super().__init__(lock, recorder_store, real_time_store)
+        super().__init__(recorder_lock, recorder_store, real_time_store)
 
         self.plot_store = plot_store
 
@@ -379,6 +381,8 @@ class RealTimeSSVEPDecoder(RealTimeWorker):
 
         self.decoder = self.init_decoder()
         self.labels = config.experiment.labels
+        self.recorder_lock = recorder_lock
+        self.visualizer_lock = visualizer_lock
 
     def init_decoder(self) -> Pipeline | BaseEstimator:
         model_type = self.config.experiment.decoding.type
@@ -475,14 +479,18 @@ class RealTimeSSVEPDecoder(RealTimeWorker):
         else:
             raise ValueError('Currently only one prediction is supported')
 
-    def process_data(self, data: ndarray):
+    def assign_times(self):
+        last_sample_time, last_received_time = copy.copy(self.real_time_store.get_times())
+        self.plot_store.set_times(last_sample_time, last_received_time, local_clock())
+
+    def process_data(self, data: ndarray) -> Tuple[ndarray, ndarray, float]:
         # return np.array(range(len(data[0]))), data[0], 0
         data = self.preprocess_data(data)
         self.assign_time_data(data)
         freqs, amps = self.spectral_analysis(data, self.real_time_store.channel)
         data = np.expand_dims(data, axis=0)
         result = self.predict(data)
-        self.plot_store.set_freq_data(freqs, amps, result)
+        return freqs, amps, result
 
     def work(self, lock: Lock):
 
@@ -490,14 +498,16 @@ class RealTimeSSVEPDecoder(RealTimeWorker):
         self.logger.info(f"Start Real-Time SSVEP Decoding for Stream: {source_id}")
 
         while self.recorder_store.is_recording:
-            self.lock.acquire()
+            self.recorder_lock.acquire()
             data = self.real_time_store.get_data()
-            self.lock.release()
+            self.recorder_lock.release()
             if data is not None:
                 data = self.reshape_data(data)
-                self.process_data(data)
-            else:
-                print(f"in front{np.random.randint(0, 100)}")
+                self.visualizer_lock.acquire()
+                freqs, amps, result = self.process_data(data)
+                self.plot_store.set_freq_data(freqs, amps, result)
+                self.assign_times()
+                self.visualizer_lock.release()
             time.sleep(1 / 30)
 
 
@@ -528,6 +538,7 @@ class RealTimeVisualizer(RealTimeWorker):
             while dpg.is_dearpygui_running() and self.recorder_store.is_recording:
 
                 x_freq, y_freq, max_freq = copy.copy(self.plot_store.get_freq_data())
+                received_delay, processing_delay, total_delay = copy.copy(self.plot_store.get_delays())
                 if x_freq is not None and y_freq is not None and len(x_freq) > 0 and len(y_freq) > 0:
                     y_freq_max = np.max(y_freq)
                     if y_freq_max > self.last_freq_max * 1.1 or y_freq_max < self.last_freq_max * 0.9:
@@ -543,7 +554,10 @@ class RealTimeVisualizer(RealTimeWorker):
                         self.last_y_time_max = y_time_max
                         dpg.set_axis_limits("y_time", np.min(y_time) * 0.9, y_time_max * 1.1)
                     dpg.set_value('time_series', [x_time, y_time])
-                time.sleep(0.1)
+                dpg.set_value('total_delay_text', np.round(total_delay, 3))
+                dpg.set_value('receive_delay_text', np.round(received_delay, 3))
+                dpg.set_value('processing_delay_text', np.round(processing_delay, 3))
+                time.sleep(0.05)
 
         with dpg.window(label="Spectral Analysis", tag="win_feq", pos=[0, 0], width=400, height=400):
             with dpg.plot(label="Spectral Analysis", height=400, width=400):
@@ -564,6 +578,12 @@ class RealTimeVisualizer(RealTimeWorker):
         with dpg.window(label="Result", tag="win_result", pos=[400, 0], width=200, height=400):
             dpg.add_text("Max Frequency", tag='result_title')
             dpg.add_text("0", tag='result_text')
+            dpg.add_text("Total Delay", tag='total_delay_title')
+            dpg.add_text("0", tag='total_delay_text')
+            dpg.add_text("Receive Delay", tag='receive_delay_title')
+            dpg.add_text("0", tag='receive_delay_text')
+            dpg.add_text("Processing Delay", tag='processing_delay_title')
+            dpg.add_text("0", tag='processing_delay_text')
 
         with dpg.window(label="EEG Data", tag="win_time", width=600, height=450, pos=[0, 400]):
             with dpg.plot(label="EEG Data", width=600, height=400):
