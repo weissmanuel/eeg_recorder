@@ -1,8 +1,8 @@
 
 
 defaults:
-  - headset: unicorn
-  - experiment: ssvep
+  - headset: demo
+  - experiment: demo
   - _self_
 
 
@@ -32,11 +32,11 @@ real_time:
   stream_type: 'EEG'
   sfreq: ${headset.sfreq}
   channel: ${headset.target_channel}
-  window_size_seconds: 5
-  window_shift_seconds: 0.1
+  window_size_seconds: ${experiment.window_size_seconds}
+  window_shift_seconds: ${experiment.window_shift_seconds}
   buffer_size_seconds: 60
   bandpass:
     low_cut: 8
     high_cut: 28
   notch: 50
-  target_frequencies: [8, 17]
+  visualisation_window_size_seconds: ${experiment.visualisation_window_size_seconds}

@@ -30,6 +30,7 @@ from collections import deque
 from sklearn.pipeline import Pipeline
 from sklearn.base import BaseEstimator
 from lib.train.pipeline import ThresholdingDecoder, load_pipeline
+from lib.utils import generate_demo_data
 
 
 class Worker(ABC):
@@ -298,29 +299,10 @@ class RealTimeWorker(ProcessWorker):
         pass
 
 
-class RealTimeRecorder(RealTimeWorker):
+class _RealTimeRecorderMixin:
 
-    def __init__(self,
-                 lock: Lock,
-                 recorder_store: RecorderStore,
-                 real_time_store: RealTimeStore
-                 ):
-        super().__init__(lock, recorder_store, real_time_store)
-
-        self.process: Process = self.get_new_process()
-
-    def prepare_data(self, data: ndarray) -> List:
-        return (data.transpose()).tolist()
-
-    @staticmethod
-    def generate_data(sample_frequency: float, num_channels: int = 2) -> Tuple[ndarray, float]:
-        data = []
-        timesteps = np.linspace(start=0.0, stop=1.0, num=int(sample_frequency), endpoint=False)
-        ch = lambda x: np.sin(2 * np.pi * 10 * x) + 0.5 * np.sin(2 * np.pi * 8 * x) + 0.3 * np.sin(
-            2 * np.pi * 10 * x) + 0.5 * np.sin(2 * np.pi * 35 * x) + np.sin(2 * np.pi * 50 * x)
-        for i in range(num_channels):
-            data.append([ch(t) for t in timesteps])
-        return np.array(data), local_clock()
+    def __init__(self, real_time_store: RealTimeStore):
+        self.real_time_store = real_time_store
 
     def get_stream_data(self, stream: StreamLSL) -> Tuple[ndarray, float] | Tuple[None, None]:
         window_size = stream.n_new_samples / self.real_time_store.sfreq
@@ -333,9 +315,21 @@ class RealTimeRecorder(RealTimeWorker):
 
     def get_data(self, stream: StreamLSL) -> ndarray | None:
         if self.real_time_store.source_id == 'demo':
-            return RealTimeRecorder.generate_data(sample_frequency=self.real_time_store.sfreq, num_channels=2)
+            return generate_demo_data(self.real_time_store, num_channels=2)
         else:
             return self.get_stream_data(stream)
+
+
+class RealTimeRecorder(RealTimeWorker, _RealTimeRecorderMixin):
+
+    def __init__(self,
+                 lock: Lock,
+                 recorder_store: RecorderStore,
+                 real_time_store: RealTimeStore
+                 ):
+        super().__init__(lock, recorder_store, real_time_store)
+
+        self.process: Process = self.get_new_process()
 
     def work(self, lock: Lock):
         source_id = self.real_time_store.source_id
@@ -347,15 +341,13 @@ class RealTimeRecorder(RealTimeWorker):
             while self.recorder_store.is_recording:
                 data, last_timestep = self.get_data(stream)
                 if data is not None:
-                    data = self.prepare_data(data)
                     self.lock.acquire()
-                    self.real_time_store.add_data(data)
+                    self.real_time_store.add_data(data.T)
                     self.real_time_store.add_times(last_timestep, local_clock())
                     self.lock.release()
-                time.sleep(1 if source_id == 'demo' else 0.01)
 
 
-class RealTimeSSVEPDecoder(RealTimeWorker):
+class RealTimeSSVEPDecoder(RealTimeWorker, _RealTimeRecorderMixin):
 
     def __init__(self,
                  recorder_lock: Lock,
@@ -383,10 +375,8 @@ class RealTimeSSVEPDecoder(RealTimeWorker):
         self.labels = config.experiment.labels
         self.recorder_lock = recorder_lock
         self.visualizer_lock = visualizer_lock
-        self.queue = deque(maxlen=1250)
 
-        self.demo_times = np.linspace(0, 5, int(5 * self.real_time_store.sfreq))
-        self.demo_iterations = 0
+        self.queue = deque(maxlen=self.real_time_store.visualisation_window_size)
 
     def init_decoder(self) -> Pipeline | BaseEstimator:
         model_type = self.config.experiment.decoding.type
@@ -439,10 +429,7 @@ class RealTimeSSVEPDecoder(RealTimeWorker):
         raw = create_raw(data=data, info=info)
         raw = raw.pick(picks=['eeg'])
         raw = self.preprocess_raw(raw)
-        self.data = raw.get_data()
-        data = self.data
-        # scaler = MinMaxScaler()
-        # data = scaler.fit_transform(data)
+        data = raw.get_data()
         return data
 
     def spectral_analysis(self, data: ndarray, channel: int = 0) -> Tuple[ndarray, ndarray]:
@@ -484,37 +471,12 @@ class RealTimeSSVEPDecoder(RealTimeWorker):
         self.plot_store.set_times(last_sample_time, last_received_time, local_clock())
 
     def process_data(self, data: ndarray) -> Tuple[ndarray, ndarray, float]:
-        # return np.array(range(len(data[0]))), data[0], 0
         data = self.preprocess_data(data)
         self.assign_time_data(data)
         freqs, amps = self.spectral_analysis(data, self.real_time_store.channel)
         data = np.expand_dims(data, axis=0)
-        result = self.predict(data)
+        result = self.predict(data[:, :, -self.real_time_store.window_size:])
         return freqs, amps, result
-
-    def generate_data(self, num_channels: int = 2) -> Tuple[ndarray, float]:
-        self.demo_iterations = self.demo_iterations if self.demo_iterations < len(self.demo_times) else 0
-        t = self.demo_times[self.demo_iterations]
-        ch = lambda x: np.sin(2 * np.pi * 10 * t) + 0.5 * np.sin(2 * np.pi * 8 * x) + 0.3 * np.sin(
-            2 * np.pi * 10 * x) + 0.5 * np.sin(2 * np.pi * 35 * x) + np.sin(2 * np.pi * 50 * x)
-        self.demo_iterations += 1
-        data = np.expand_dims(np.repeat(np.array([ch(t)]), num_channels), axis=1)
-        return data, local_clock()
-
-    def get_stream_data(self, stream: StreamLSL) -> Tuple[ndarray, float] | Tuple[None, None]:
-        window_size = stream.n_new_samples / self.real_time_store.sfreq
-        if window_size > 0:
-            (values, times) = stream.get_data(winsize=window_size)
-            last_time = times[-1] if times is not None and len(times) > 0 else local_clock()
-            return values, last_time
-        else:
-            return None, None
-
-    def get_data(self, stream: StreamLSL) -> ndarray | None:
-        if self.real_time_store.source_id == 'demo':
-            return self.generate_data(num_channels=2)
-        else:
-            return self.get_stream_data(stream)
 
     def work(self, lock: Lock):
 
@@ -527,14 +489,13 @@ class RealTimeSSVEPDecoder(RealTimeWorker):
             last_received_time = local_clock()
             if data is not None:
                 self.queue.extend(data.T.tolist())
-                if len(self.queue) >= 1250:
+                if len(self.queue) >= self.real_time_store.visualisation_window_size:
                     data = np.array(self.queue).T
                     self.visualizer_lock.acquire()
                     freqs, amps, result = self.process_data(data)
                     self.plot_store.set_freq_data(freqs, amps, result)
                     self.assign_times(last_sample_time, last_received_time)
                     self.visualizer_lock.release()
-            # time.sleep(1/30)
 
 
 class RealTimeVisualizer(RealTimeWorker):
@@ -618,7 +579,7 @@ class RealTimeVisualizer(RealTimeWorker):
 
                 # REQUIRED: create x and y axes
                 dpg.add_plot_axis(dpg.mvXAxis, label="Time Samples", tag='x_time')
-                dpg.set_axis_limits("x_time", 0, self.config.real_time.window_size_seconds + 1)
+                dpg.set_axis_limits("x_time", 0, self.config.real_time.visualisation_window_size_seconds)
                 dpg.add_plot_axis(dpg.mvYAxis, label="Volts", tag="y_time")
 
                 # series belong to a y-axis

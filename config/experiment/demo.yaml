@@ -8,9 +8,13 @@ persister_workers: null
 #  - name: 'default'
 #    interval: 30
 
-labels: [10, 15, 20, 25]
+labels: [8, 10, 35, 50]
 window_size_seconds: 1
-signal_duration_seconds: 10
+window_shift_seconds: 0.1
+signal_duration_seconds: 15
+event_offset_seconds: 2
+
+visualisation_window_size_seconds: 5
 
 training: null
 

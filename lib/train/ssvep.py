@@ -44,7 +44,7 @@ def train_ssvep_classifier(config: DictConfig, file_path: str):
     raw = Resample(sfreq=sfreq).preprocess(raw)
 
     epochs = generate_epochs(raw, event_mapping=get_events_mapping(),
-                             t_min=0, t_max=signal_duration_seconds)
+                             t_min=event_offset_seconds, t_max=signal_duration_seconds)
     epochs = EpochFilter(low_freq=9, high_freq=23).preprocess(epochs)
 
     num_classes = len(config.experiment.labels)

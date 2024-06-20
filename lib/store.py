@@ -410,7 +410,7 @@ class RealTimeStore:
                  low_cut: float = 1,
                  high_cut: float = 30,
                  notch: float = 50,
-                 target_frequencies: List[float] = None,
+                 visualisation_window_size_seconds: float = 5,
                  ):
         self.source_id = source_id
         self.stream_type = stream_type
@@ -429,6 +429,7 @@ class RealTimeStore:
         self.notch = notch
 
         self._buffer = manager.list([0] * self.buffer_size)
+
         self._n_new_samples = manager.Value('i', 0)
 
         self._last_sample_time = manager.Value('d', 0.0)
@@ -436,7 +437,11 @@ class RealTimeStore:
 
         self.lock = manager.Lock()
 
-        self.target_frequencies = target_frequencies if target_frequencies is not None else []
+        self.visualisation_window_size_seconds = visualisation_window_size_seconds
+        self.visualisation_window_size = int(visualisation_window_size_seconds * sfreq)
+        self._iterations = manager.Value('i', 0)
+        demo_time_space = np.linspace(0, visualisation_window_size_seconds, self.visualisation_window_size)
+        self.demo_time_space = demo_time_space
 
     @staticmethod
     def from_config(config: DictConfig, manager: Manager):
@@ -452,7 +457,7 @@ class RealTimeStore:
             low_cut=config.bandpass.low_cut,
             high_cut=config.bandpass.high_cut,
             notch=config.notch,
-            target_frequencies=config.target_frequencies
+            visualisation_window_size_seconds=config.visualisation_window_size_seconds
         )
 
     @property
@@ -487,6 +492,14 @@ class RealTimeStore:
     def last_received_time(self, value: float) -> None:
         self._last_received_time.value = value
 
+    @property
+    def iterations(self) -> int:
+        return self._iterations.value
+
+    @iterations.setter
+    def iterations(self, value: int) -> None:
+        self._iterations.value = value
+
     def check_first_window_filled(self):
         return self.n_new_samples >= self.window_size
 
@@ -511,13 +524,6 @@ class RealTimeStore:
     def get_data(self) -> ndarray | None:
         if not self.has_new_data():
             return None
-
-        # print("N new samples: ", self.n_new_samples)
-        # print("Buffer Size: ", self.buffer_size)
-        # print("Window Size: ", self.window_size)
-        # print("Head: ", self.head)
-        # print("Tail: ", self.tail)
-        # print("Diff: ", self.head - self.tail)
 
         data = copy.copy(self._buffer[self.buffer_size - self.head:self.buffer_size - self.tail])
         self.update_n_new_samples(-self.window_shift)
