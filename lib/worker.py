@@ -418,9 +418,6 @@ class RealTimeSSVEPDecoder(RealTimeWorker):
         y = lfilter(b, a, data, axis=1)
         return y
 
-    def reshape_data(self, data: ndarray) -> ndarray:
-        return data.transpose()
-
     def preprocess(self, info: Info, data: ndarray) -> ndarray:
         preprocessors: List[Preprocessor] = get_preprocessors(self.config.preprocessors)
         if preprocessors is not None and len(preprocessors) > 0:
@@ -430,7 +427,7 @@ class RealTimeSSVEPDecoder(RealTimeWorker):
 
     def preprocess_raw(self, raw: RawArray) -> RawArray:
         raw = raw.notch_filter(freqs=50, method='iir', verbose=False)
-        raw = raw.filter(l_freq=self.real_time_store.low_cut, h_freq=self.real_time_store.high_cut, method='fir',
+        raw = raw.filter(l_freq=2, h_freq=30, method='fir',
                          verbose=False)
         return raw
 
@@ -495,9 +492,6 @@ class RealTimeSSVEPDecoder(RealTimeWorker):
         result = self.predict(data)
         return freqs, amps, result
 
-    def prepare_data(self, data: ndarray) -> List:
-        return (data.transpose()).tolist()
-
     def generate_data(self, num_channels: int = 2) -> Tuple[ndarray, float]:
         self.demo_iterations = self.demo_iterations if self.demo_iterations < len(self.demo_times) else 0
         t = self.demo_times[self.demo_iterations]
@@ -540,8 +534,6 @@ class RealTimeSSVEPDecoder(RealTimeWorker):
                     self.plot_store.set_freq_data(freqs, amps, result)
                     self.assign_times(last_sample_time, last_received_time)
                     self.visualizer_lock.release()
-                else:
-                    print(len(self.queue))
             # time.sleep(1/30)
 
 
@@ -602,7 +594,7 @@ class RealTimeVisualizer(RealTimeWorker):
                 dpg.add_plot_axis(dpg.mvXAxis, label="Frequencies", tag='x_freq')
                 dpg.set_axis_limits("x_freq",
                                     self.config.real_time.bandpass.low_cut - 5,
-                                    self.config.real_time.bandpass.high_cut + 5)
+                                    64)
                 dpg.add_plot_axis(dpg.mvYAxis, label="Amplitudes", tag="y_freq")
 
                 # series belong to a y-axis
