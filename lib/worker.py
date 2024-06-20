@@ -29,7 +29,7 @@ from lib.preprocess.data_preprocess import get_preprocessors, Preprocessor
 from collections import deque
 from sklearn.pipeline import Pipeline
 from sklearn.base import BaseEstimator
-from lib .train.pipeline import ThresholdingDecoder, load_pipeline
+from lib.train.pipeline import ThresholdingDecoder, load_pipeline
 
 
 class Worker(ABC):
@@ -383,6 +383,10 @@ class RealTimeSSVEPDecoder(RealTimeWorker):
         self.labels = config.experiment.labels
         self.recorder_lock = recorder_lock
         self.visualizer_lock = visualizer_lock
+        self.queue = deque(maxlen=1250)
+
+        self.demo_times = np.linspace(0, 5, int(5 * self.real_time_store.sfreq))
+        self.demo_iterations = 0
 
     def init_decoder(self) -> Pipeline | BaseEstimator:
         model_type = self.config.experiment.decoding.type
@@ -479,8 +483,7 @@ class RealTimeSSVEPDecoder(RealTimeWorker):
         else:
             raise ValueError('Currently only one prediction is supported')
 
-    def assign_times(self):
-        last_sample_time, last_received_time = copy.copy(self.real_time_store.get_times())
+    def assign_times(self, last_sample_time: float, last_received_time: float):
         self.plot_store.set_times(last_sample_time, last_received_time, local_clock())
 
     def process_data(self, data: ndarray) -> Tuple[ndarray, ndarray, float]:
@@ -492,23 +495,54 @@ class RealTimeSSVEPDecoder(RealTimeWorker):
         result = self.predict(data)
         return freqs, amps, result
 
+    def prepare_data(self, data: ndarray) -> List:
+        return (data.transpose()).tolist()
+
+    def generate_data(self, num_channels: int = 2) -> Tuple[ndarray, float]:
+        self.demo_iterations = self.demo_iterations if self.demo_iterations < len(self.demo_times) else 0
+        t = self.demo_times[self.demo_iterations]
+        ch = lambda x: np.sin(2 * np.pi * 10 * t) + 0.5 * np.sin(2 * np.pi * 8 * x) + 0.3 * np.sin(
+            2 * np.pi * 10 * x) + 0.5 * np.sin(2 * np.pi * 35 * x) + np.sin(2 * np.pi * 50 * x)
+        self.demo_iterations += 1
+        data = np.expand_dims(np.repeat(np.array([ch(t)]), num_channels), axis=1)
+        return data, local_clock()
+
+    def get_stream_data(self, stream: StreamLSL) -> Tuple[ndarray, float] | Tuple[None, None]:
+        window_size = stream.n_new_samples / self.real_time_store.sfreq
+        if window_size > 0:
+            (values, times) = stream.get_data(winsize=window_size)
+            last_time = times[-1] if times is not None and len(times) > 0 else local_clock()
+            return values, last_time
+        else:
+            return None, None
+
+    def get_data(self, stream: StreamLSL) -> ndarray | None:
+        if self.real_time_store.source_id == 'demo':
+            return self.generate_data(num_channels=2)
+        else:
+            return self.get_stream_data(stream)
+
     def work(self, lock: Lock):
 
         source_id = self.real_time_store.source_id
+        stream = connect(source_id, self.real_time_store.stream_type, self.real_time_store.buffer_size_seconds)
         self.logger.info(f"Start Real-Time SSVEP Decoding for Stream: {source_id}")
 
         while self.recorder_store.is_recording:
-            self.recorder_lock.acquire()
-            data = self.real_time_store.get_data()
-            self.recorder_lock.release()
+            data, last_sample_time = self.get_data(stream)
+            last_received_time = local_clock()
             if data is not None:
-                data = self.reshape_data(data)
-                self.visualizer_lock.acquire()
-                freqs, amps, result = self.process_data(data)
-                self.plot_store.set_freq_data(freqs, amps, result)
-                self.assign_times()
-                self.visualizer_lock.release()
-            time.sleep(1 / 30)
+                self.queue.extend(data.T.tolist())
+                if len(self.queue) >= 1250:
+                    data = np.array(self.queue).T
+                    self.visualizer_lock.acquire()
+                    freqs, amps, result = self.process_data(data)
+                    self.plot_store.set_freq_data(freqs, amps, result)
+                    self.assign_times(last_sample_time, last_received_time)
+                    self.visualizer_lock.release()
+                else:
+                    print(len(self.queue))
+            # time.sleep(1/30)
 
 
 class RealTimeVisualizer(RealTimeWorker):
