@@ -1,8 +1,9 @@
 
 
 defaults:
-  - headset: unicorn
-  - experiment: ssvep
+  - headset: demo
+  - experiment: demo
+  - psd: scipy
   - _self_
 
 
@@ -36,7 +37,7 @@ real_time:
   window_shift_seconds: ${experiment.window_shift_seconds}
   buffer_size_seconds: 60
   bandpass:
-    low_cut: 10
+    low_cut: 8
     high_cut: 28
   notch: 50
   visualisation_window_size_seconds: ${experiment.visualisation_window_size_seconds}

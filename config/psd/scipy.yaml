@@ -1,0 +1,10 @@
+
+method: 'scipy'
+kwargs: {}
+
+vis_kwargs:
+  fmin: 1.0
+  fmax: 64.0
+
+vis:
+  y_axis: 'Amplitude'

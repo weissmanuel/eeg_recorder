@@ -421,7 +421,7 @@ class RealTimeSSVEPDecoder(RealTimeWorker, _RealTimeRecorderMixin):
                          verbose=False)
         return raw
 
-    def preprocess_data(self, data: ndarray):
+    def preprocess_data(self, data: ndarray) -> RawArray:
         info = create_info(self.config)
         data = self.preprocess(info=info, data=data)
         # data = self.notch_filter(data)
@@ -429,7 +429,6 @@ class RealTimeSSVEPDecoder(RealTimeWorker, _RealTimeRecorderMixin):
         raw = create_raw(data=data, info=info)
         raw = raw.pick(picks=['eeg'])
         raw = self.preprocess_raw(raw)
-        data = raw.get_data()
         return raw
 
     def spectral_analysis(self, data: ndarray, channel: int = 0) -> Tuple[ndarray, ndarray]:
@@ -447,7 +446,17 @@ class RealTimeSSVEPDecoder(RealTimeWorker, _RealTimeRecorderMixin):
             self.spectral_queue.append(magnitudes)
             magnitudes = np.mean(self.spectral_queue, axis=0)
 
-        return frequencies, magnitudes
+        return magnitudes, frequencies
+
+    def compute_psd(self, raw: RawArray) -> Tuple[ndarray, ndarray]:
+        psd_conf = self.config.psd
+        method = psd_conf.method
+        if self.config.psd.method == 'scipy':
+            return self.spectral_analysis(raw.get_data(), self.real_time_store.channel)
+        else:
+            amps, freqs = (raw.compute_psd(method=method, **psd_conf.vis_kwargs)
+                           .get_data(return_freqs=True, fmin=psd_conf.vis_kwargs.fmin, fmax=psd_conf.vis_kwargs.fmax))
+            return amps[self.real_time_store.channel], freqs
 
     def get_time_axis(self, data: ndarray) -> ndarray:
         sfreq = self.real_time_store.sfreq
@@ -474,9 +483,7 @@ class RealTimeSSVEPDecoder(RealTimeWorker, _RealTimeRecorderMixin):
         raw = self.preprocess_data(data)
         data = raw.get_data()
         self.assign_time_data(data)
-        # freqs, amps = self.spectral_analysis(data, self.real_time_store.channel)
-        amps, freqs = raw.compute_psd(verbose=False, fmin=1, fmax=64, method='multitaper').get_data(fmin=1, fmax=64, return_freqs=True)
-        amps = amps[self.real_time_store.channel]
+        amps, freqs = self.compute_psd(raw)
         data = np.expand_dims(data, axis=0)
         result = self.predict(data[:, :, -self.real_time_store.window_size:])
         return freqs, amps, result
@@ -557,9 +564,8 @@ class RealTimeVisualizer(RealTimeWorker):
                 # REQUIRED: create x and y axes
                 dpg.add_plot_axis(dpg.mvXAxis, label="Frequencies", tag='x_freq')
                 dpg.set_axis_limits("x_freq",
-                                    self.config.real_time.bandpass.low_cut - 5,
-                                    64)
-                dpg.add_plot_axis(dpg.mvYAxis, label="Amplitudes", tag="y_freq")
+                                    self.config.psd.vis_kwargs.fmin,self.config.psd.vis_kwargs.fmax)
+                dpg.add_plot_axis(dpg.mvYAxis, label=self.config.psd.vis.y_axis, tag="y_freq")
 
                 # series belong to a y-axis
                 dpg.add_line_series(self.plot_store.x_freq, self.plot_store.y_freq, label="Spectral Analysis",
