@@ -421,7 +421,7 @@ class RealTimeSSVEPDecoder(RealTimeWorker, _RealTimeRecorderMixin):
                          verbose=False)
         return raw
 
-    def preprocess_data(self, data: ndarray) -> ndarray:
+    def preprocess_data(self, data: ndarray):
         info = create_info(self.config)
         data = self.preprocess(info=info, data=data)
         # data = self.notch_filter(data)
@@ -430,7 +430,7 @@ class RealTimeSSVEPDecoder(RealTimeWorker, _RealTimeRecorderMixin):
         raw = raw.pick(picks=['eeg'])
         raw = self.preprocess_raw(raw)
         data = raw.get_data()
-        return data
+        return raw
 
     def spectral_analysis(self, data: ndarray, channel: int = 0) -> Tuple[ndarray, ndarray]:
 
@@ -471,9 +471,12 @@ class RealTimeSSVEPDecoder(RealTimeWorker, _RealTimeRecorderMixin):
         self.plot_store.set_times(last_sample_time, last_received_time, local_clock())
 
     def process_data(self, data: ndarray) -> Tuple[ndarray, ndarray, float]:
-        data = self.preprocess_data(data)
+        raw = self.preprocess_data(data)
+        data = raw.get_data()
         self.assign_time_data(data)
-        freqs, amps = self.spectral_analysis(data, self.real_time_store.channel)
+        # freqs, amps = self.spectral_analysis(data, self.real_time_store.channel)
+        amps, freqs = raw.compute_psd(verbose=False, fmin=1, fmax=64, method='multitaper').get_data(fmin=1, fmax=64, return_freqs=True)
+        amps = amps[self.real_time_store.channel]
         data = np.expand_dims(data, axis=0)
         result = self.predict(data[:, :, -self.real_time_store.window_size:])
         return freqs, amps, result
@@ -491,11 +494,11 @@ class RealTimeSSVEPDecoder(RealTimeWorker, _RealTimeRecorderMixin):
                 self.queue.extend(data.T.tolist())
                 if len(self.queue) >= self.real_time_store.visualisation_window_size:
                     data = np.array(self.queue).T
-                    self.visualizer_lock.acquire()
+                    # self.visualizer_lock.acquire()
                     freqs, amps, result = self.process_data(data)
                     self.plot_store.set_freq_data(freqs, amps, result)
                     self.assign_times(last_sample_time, last_received_time)
-                    self.visualizer_lock.release()
+                    # self.visualizer_lock.release()
 
 
 class RealTimeVisualizer(RealTimeWorker):
