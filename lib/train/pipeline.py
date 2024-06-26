@@ -10,9 +10,10 @@ import numpy as np
 from sklearn.svm import SVC
 from pyriemann.classification import MDM, SVC as R_SVC
 from pyriemann.estimation import XdawnCovariances
-from lib.preprocess.algorithms.utils import filterbank
-from lib.preprocess.algorithms.cca import ECCA, SCCA_canoncorr
-from lib.preprocess.algorithms.trca import MSCCA_and_MSETRCA
+from lib.train.algorithms.utils import filterbank
+from lib.train.algorithms.cca import ECCA
+from lib.train.algorithms.cca_new import CCAClassifier
+from lib.train.algorithms.trca import MSCCA_and_MSETRCA
 from lib.utils import config_to_primitive
 from collections import deque
 from typing import Tuple
@@ -299,7 +300,7 @@ def get_pipeline_step(step: PipelineSteps | str, **kwargs):
         case PipelineSteps.MDM:
             return MDM()
         case PipelineSteps.CCA:
-            return SCCA_canoncorr(**kwargs)
+            return CCAClassifier(**kwargs)
         case PipelineSteps.ECCA:
             return ECCA(**kwargs)
         case PipelineSteps.MSCCA_AND_MSETRCA:

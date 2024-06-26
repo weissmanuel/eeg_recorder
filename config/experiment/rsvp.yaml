@@ -12,4 +12,27 @@ persister_workers: null
 #  - name: 'default'
 #    interval: 30
 
+raw_preprocessors:
+  - name: 'notch_filter'
+    kwargs:
+      freqs: 50
+      method: 'iir'
+      filter_length: 'auto'
+      notch_widths: 1
+  - name: 'bandpass_filter'
+    kwargs:
+      low_cut: 4
+      high_cut: 64
+      method: 'iir'
+  - name: 'reference'
+    kwargs:
+      ref_channels: 'average'
+
+epoch_preprocessors:
+  - name: 'bandpass_filter'
+    kwargs:
+      low_cut: 4
+      high_cut: 64
+      method: 'iir'
+
 training: null

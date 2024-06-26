@@ -411,6 +411,7 @@ class RealTimeStore:
                  high_cut: float = 30,
                  notch: float = 50,
                  visualisation_window_size_seconds: float = 5,
+                 labels: List[str] = None,
                  ):
         self.source_id = source_id
         self.stream_type = stream_type
@@ -443,6 +444,8 @@ class RealTimeStore:
         demo_time_space = np.linspace(0, visualisation_window_size_seconds, self.visualisation_window_size)
         self.demo_time_space = demo_time_space
 
+        self.labels = labels
+
     @staticmethod
     def from_config(config: DictConfig, manager: Manager):
         return RealTimeStore(
@@ -457,7 +460,8 @@ class RealTimeStore:
             low_cut=config.bandpass.low_cut,
             high_cut=config.bandpass.high_cut,
             notch=config.notch,
-            visualisation_window_size_seconds=config.visualisation_window_size_seconds
+            visualisation_window_size_seconds=config.visualisation_window_size_seconds,
+            labels=config.labels
         )
 
     @property

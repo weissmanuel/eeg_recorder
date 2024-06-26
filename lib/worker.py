@@ -1,4 +1,5 @@
 import copy
+import os.path
 from abc import ABC, abstractmethod
 from .store import StreamType
 from datetime import datetime, timedelta
@@ -26,6 +27,7 @@ from omegaconf import DictConfig
 from mne.io import RawArray
 from mne import Info
 from lib.preprocess.data_preprocess import get_preprocessors, Preprocessor
+from lib.preprocess.raw_preprocess import get_raw_preprocessors, RawPreprocessor
 from collections import deque
 from sklearn.pipeline import Pipeline
 from sklearn.base import BaseEstimator
@@ -315,7 +317,8 @@ class _RealTimeRecorderMixin:
 
     def get_data(self, stream: StreamLSL) -> ndarray | None:
         if self.real_time_store.source_id == 'demo':
-            return generate_demo_data(self.real_time_store, num_channels=2)
+            target_frequencies = self.real_time_store.labels if self.real_time_store.labels is not None else None
+            return generate_demo_data(self.real_time_store, num_channels=2, target_frequencies=target_frequencies)
         else:
             return self.get_stream_data(stream)
 
@@ -378,15 +381,22 @@ class RealTimeSSVEPDecoder(RealTimeWorker, _RealTimeRecorderMixin):
 
         self.queue = deque(maxlen=self.real_time_store.visualisation_window_size)
 
-    def init_decoder(self) -> Pipeline | BaseEstimator:
+        self.preprocessors: List[Preprocessor] = get_preprocessors(self.config.preprocessors)
+        self.raw_preprocessors: List[RawPreprocessor] = get_raw_preprocessors(self.config.experiment.raw_preprocessors)
+
+    def init_decoder(self) -> Pipeline | BaseEstimator | None:
         model_type = self.config.experiment.decoding.type
         if model_type == 'threshold':
             return ThresholdingDecoder(sfreq=self.real_time_store.sfreq,
                                        target_frequencies=self.config.experiment.labels,
                                        channel=self.real_time_store.channel,
                                        band_width=1.0)
+        elif model_type == 'model':
+            if self.config.experiment.decoding.decoder_path is not None and os.path.exists(
+                    self.config.experiment.decoding.decoder_path):
+                return load_pipeline(self.config.experiment.decoding.decoder_path)
         else:
-            return load_pipeline(self.config.experiment.decoding.decoder_path)
+            return None
 
     def init_notch(self, notch: float = 50.0, qf: float = 5):
         return iirnotch(notch, qf, self.real_time_store.sfreq)
@@ -409,16 +419,15 @@ class RealTimeSSVEPDecoder(RealTimeWorker, _RealTimeRecorderMixin):
         return y
 
     def preprocess(self, info: Info, data: ndarray) -> ndarray:
-        preprocessors: List[Preprocessor] = get_preprocessors(self.config.preprocessors)
-        if preprocessors is not None and len(preprocessors) > 0:
-            for preprocessor in preprocessors:
+        if self.preprocessors is not None and len(self.preprocessors) > 0:
+            for preprocessor in self.preprocessors:
                 data = preprocessor(data, info=info)
         return data
 
     def preprocess_raw(self, raw: RawArray) -> RawArray:
-        raw = raw.notch_filter(freqs=50, method='iir', verbose=False)
-        raw = raw.filter(l_freq=2, h_freq=30, method='fir',
-                         verbose=False)
+        if self.raw_preprocessors is not None and len(self.raw_preprocessors) > 0:
+            for preprocessor in self.raw_preprocessors:
+                raw = preprocessor(raw)
         return raw
 
     def preprocess_data(self, data: ndarray) -> RawArray:
@@ -470,11 +479,14 @@ class RealTimeSSVEPDecoder(RealTimeWorker, _RealTimeRecorderMixin):
         self.plot_store.y_time = data[channel].tolist()
 
     def predict(self, data: ndarray) -> float:
-        y_pred = self.decoder.predict(data)
-        if len(y_pred) == 1:
-            return self.labels[int(y_pred[0])]
+        if self.decoder is not None:
+            y_pred = self.decoder.predict(data)
+            if len(y_pred) == 1:
+                return self.labels[int(y_pred[0])]
+            else:
+                raise ValueError('Currently only one prediction is supported')
         else:
-            raise ValueError('Currently only one prediction is supported')
+            return 0
 
     def assign_times(self, last_sample_time: float, last_received_time: float):
         self.plot_store.set_times(last_sample_time, last_received_time, local_clock())
@@ -554,7 +566,6 @@ class RealTimeVisualizer(RealTimeWorker):
                 dpg.set_value('total_delay_text', np.round(total_delay, 3))
                 dpg.set_value('receive_delay_text', np.round(received_delay, 3))
                 dpg.set_value('processing_delay_text', np.round(processing_delay, 3))
-                time.sleep(0.05)
 
         with dpg.window(label="Spectral Analysis", tag="win_feq", pos=[0, 0], width=400, height=400):
             with dpg.plot(label="Spectral Analysis", height=400, width=400):

@@ -9,6 +9,8 @@ from lib.train.pipeline import build_pipeline, save_pipeline
 from sklearn.metrics import classification_report
 from lib.utils import config_to_primitive
 from sklearn.utils import shuffle as sk_shuffle
+from lib.preprocess.raw_preprocess import get_raw_preprocessors
+from lib.preprocess.epoch_preprocess import get_epoch_preprocessors
 
 
 def get_events_mapping() -> dict:
@@ -36,16 +38,18 @@ def train_ssvep_classifier(config: DictConfig, file_path: str):
     window_shift_seconds = config.experiment.window_shift_seconds
     event_offset_seconds = config.experiment.event_offset_seconds
 
-
     raw = load_raw(file_path)
-    raw = RawNotchFilter(freqs=50).preprocess(raw)
-    raw = RawFilter(9, 23).preprocess(raw)
-    raw = raw.set_eeg_reference(ref_channels='average', projection=False)
-    raw = Resample(sfreq=sfreq).preprocess(raw)
+
+    raw_preprocessors = get_raw_preprocessors(config.experiment.raw_preprocessors)
+    for preprocessor in raw_preprocessors:
+        raw = preprocessor(raw)
 
     epochs = generate_epochs(raw, event_mapping=get_events_mapping(),
                              t_min=event_offset_seconds, t_max=signal_duration_seconds)
-    epochs = EpochFilter(low_freq=9, high_freq=23).preprocess(epochs)
+
+    epoch_preprocessors = get_epoch_preprocessors(config.experiment.epoch_preprocessors)
+    for preprocessor in epoch_preprocessors:
+        epochs = preprocessor.preprocess(epochs)
 
     num_classes = len(config.experiment.labels)
     num_events = len(epochs.events)
@@ -58,7 +62,7 @@ def train_ssvep_classifier(config: DictConfig, file_path: str):
     splitter = EpochWindowSplitter(sfreq=sfreq,
                                    window_size_seconds=window_size_seconds,
                                    window_shift_seconds=window_shift_seconds,
-                                   use_averaging=False,)
+                                   use_averaging=False, )
 
     X_train, y_train = splitter(train_epochs.get_data(copy=True), train_epochs.events[:, 2])
     X_train, y_train = sk_shuffle(X_train, y_train)
@@ -70,5 +74,5 @@ def train_ssvep_classifier(config: DictConfig, file_path: str):
     save_pipeline(pipeline, config.experiment.training.pipeline_path)
 
     y_pred = pipeline.predict(X_test)
-    y_pred_proba = pipeline.predict_proba(X_test)
+    # y_pred_proba = pipeline.predict_proba(X_test)
     print(classification_report(y_test, y_pred))

@@ -28,12 +28,30 @@ def config_to_primitive(cfg: any) -> any:
     return cfg
 
 
-def generate_demo_data(real_time_store: RealTimeStore, num_channels: int = 2) -> Tuple[ndarray, float]:
+def generate_channel_data(freqs: ndarray, weights: ndarray, t: ndarray) -> ndarray:
+    if len(freqs) != 4:
+        freqs = np.array([8, 10, 35, 50])
+    signal = np.zeros_like(t)
+    for i, freq in enumerate(freqs):
+        if freq < 0:
+            raise ValueError("Frequency must be greater than 0")
+        signal += weights[i] * np.sin(2 * np.pi * freq * t)
+    return signal
+
+
+def generate_demo_data(
+        real_time_store: RealTimeStore,
+        num_channels: int = 2,
+        target_frequencies: ndarray | list[int] | None = np.array([8, 10, 35, 50])
+) -> Tuple[ndarray, float]:
+    weights = np.array([1, 0.2, 0.2, 1])
+
     real_time_store.iterations = real_time_store.iterations \
         if real_time_store.iterations < len(real_time_store.demo_time_space) else 0
+
     t = real_time_store.demo_time_space[real_time_store.iterations]
-    ch = lambda x: (np.sin(2 * np.pi * 10 * t) + 0.5 * np.sin(2 * np.pi * 8 * x) +
-                    0.5 * np.sin(2 * np.pi * 35 * x) + np.sin(2 * np.pi * 50 * x))
+
     real_time_store.iterations += 1
-    data = np.expand_dims(np.repeat(np.array([ch(t)]), num_channels), axis=1)
+    ch = generate_channel_data(target_frequencies, weights, t)
+    data = np.expand_dims(np.repeat(np.array([ch]), num_channels), axis=1)
     return data, local_clock()

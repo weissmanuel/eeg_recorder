@@ -6,7 +6,7 @@ def generate_harmonics(frequencies: List[float], duration: float, sfreq: float, 
     harmonics_dict = {}
     harmonics_list = []
     T = int(duration * sfreq)
-    t = np.arange(1, T + 1) / sfreq
+    t = np.linspace(0, (T-1)/sfreq, T)
     for f in frequencies:
         harmonics = []
         for i in range(1, num_harmonics // 2 + 1):

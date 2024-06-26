@@ -2,7 +2,7 @@
 TRCA based recognition methods
 """
 
-from typing import Union, Optional, Dict, List, Tuple, Callable
+from typing import Optional, List, Tuple
 from numpy import ndarray
 from joblib import Parallel, delayed
 from functools import partial
@@ -17,7 +17,7 @@ from .utils import (
     inv, repmat
 )
 from lib.train.utils import generate_harmonics
-from lib.preprocess.algorithms.utils import suggested_weights_filterbank
+from lib.train.algorithms.utils import suggested_weights_filterbank
 
 def _sscor_cal_U(X_single_stimulus : ndarray,
                  n_component : int):

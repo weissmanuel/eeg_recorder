@@ -20,6 +20,29 @@ event_offset_seconds: 2
 
 visualisation_window_size_seconds: 5
 
+raw_preprocessors:
+  - name: 'notch_filter'
+    kwargs:
+      freqs: 50
+      method: 'iir'
+      filter_length: 'auto'
+      notch_widths: 1
+  - name: 'bandpass_filter'
+    kwargs:
+      low_cut: 4
+      high_cut: 64
+      method: 'iir'
+  - name: 'reference'
+    kwargs:
+      ref_channels: 'average'
+
+epoch_preprocessors:
+  - name: 'bandpass_filter'
+    kwargs:
+      low_cut: 4
+      high_cut: 64
+      method: 'iir'
+
 training:
   enabled: True
   type: 'ssvep'
