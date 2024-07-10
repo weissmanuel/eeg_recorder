@@ -558,14 +558,15 @@ class RealTimeVisualizer(RealTimeWorker):
 
                 x_time, y_time = copy.copy(self.plot_store.get_time_data())
                 if x_time is not None and y_time is not None and len(x_time) > 0 and len(y_time) > 0:
-                    y_time_max = np.max(y_time)
-                    if y_time_max > self.last_y_time_max * 1.1 or y_time_max < self.last_y_time_max * 0.9:
-                        self.last_y_time_max = y_time_max
-                        dpg.set_axis_limits("y_time", np.min(y_time) * 0.9, y_time_max * 1.1)
+                    # y_time_max = np.max(y_time)
+                    # if y_time_max > self.last_y_time_max * 1.1 or y_time_max < self.last_y_time_max * 0.9:
+                    #     self.last_y_time_max = y_time_max
+                    #     dpg.set_axis_limits("y_time", np.min(y_time) * 0.9, y_time_max * 1.1)
                     dpg.set_value('time_series', [x_time, y_time])
                 dpg.set_value('total_delay_text', np.round(total_delay, 3))
                 dpg.set_value('receive_delay_text', np.round(received_delay, 3))
                 dpg.set_value('processing_delay_text', np.round(processing_delay, 3))
+                time.sleep(0.01)
 
         with dpg.window(label="Spectral Analysis", tag="win_feq", pos=[0, 0], width=400, height=400):
             with dpg.plot(label="Spectral Analysis", height=400, width=400):
@@ -601,6 +602,7 @@ class RealTimeVisualizer(RealTimeWorker):
                 dpg.add_plot_axis(dpg.mvXAxis, label="Time Samples", tag='x_time')
                 dpg.set_axis_limits("x_time", 0, self.config.real_time.visualisation_window_size_seconds)
                 dpg.add_plot_axis(dpg.mvYAxis, label="Volts", tag="y_time")
+                dpg.set_axis_limits("y_time", -400, 400)
 
                 # series belong to a y-axis
                 dpg.add_line_series(self.plot_store.x_time, self.plot_store.x_time, label="EEG Signal", parent="y_time",

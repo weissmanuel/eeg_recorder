@@ -1,8 +1,8 @@
 
 
 defaults:
-  - headset: demo
-  - experiment: demo
+  - headset: unicorn
+  - experiment: ssvep
   - psd: scipy
   - _self_
 

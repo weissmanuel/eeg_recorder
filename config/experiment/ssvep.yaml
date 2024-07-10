@@ -12,7 +12,7 @@ persister_workers: null
 #  - name: 'default'
 #    interval: 30
 
-labels: [9, 11, 13, 15]
+labels: [6, 10, 15, 19]
 window_size_seconds: 1
 window_shift_seconds: 0.1
 signal_duration_seconds: 15
@@ -26,15 +26,15 @@ raw_preprocessors:
       freqs: 50
       method: 'iir'
       filter_length: 'auto'
-      notch_widths: 1
+      notch_widths: 10
   - name: 'bandpass_filter'
     kwargs:
       low_cut: 4
       high_cut: 64
-      method: 'iir'
-  - name: 'reference'
-    kwargs:
-      ref_channels: 'average'
+      method: 'fir'
+#  - name: 'reference'
+#    kwargs:
+#      ref_channels: 'average'
 
 epoch_preprocessors:
   - name: 'bandpass_filter'
@@ -48,19 +48,25 @@ training:
   type: 'ssvep'
   pipeline_path: './data/models/ssvep_pipeline.pth'
   pipeline:
-    - name: 'filterbank'
-      kwargs:
-        sfreq: ${headset.sfreq}
+#    - name: 'CCA'
+#      kwargs:
+#        sfreq: ${headset.sfreq}
+#        target_frequencies: ${experiment.labels}
+#        signal_duration_seconds: ${experiment.window_size_seconds}
+#        n_harmonics: 4
     - name: 'consecutive_majority_vote_classifier'
       kwargs:
         window_size: 5
         base_classifier:
-          name: 'CCA'
-          kwargs:
-            sfreq: ${headset.sfreq}
-            target_frequencies: ${experiment.labels}
-            signal_duration_seconds: ${experiment.window_size_seconds}
-            n_jobs: null
+          - name: 'CCA'
+            kwargs:
+              sfreq: ${headset.sfreq}
+              target_frequencies: ${experiment.labels}
+              signal_duration_seconds: ${experiment.window_size_seconds}
+              n_harmonics: 4
+#    - name: 'filterbank'
+#      kwargs:
+#        sfreq: ${headset.sfreq}
 #    - name: 'CCA'
 ##     - name: 'ECCA'
 ##     - name: 'MSCCA_AND_MSETRCA'
