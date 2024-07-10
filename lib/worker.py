@@ -576,7 +576,7 @@ class RealTimeVisualizer(RealTimeWorker):
                 # REQUIRED: create x and y axes
                 dpg.add_plot_axis(dpg.mvXAxis, label="Frequencies", tag='x_freq')
                 dpg.set_axis_limits("x_freq",
-                                    self.config.psd.vis_kwargs.fmin,self.config.psd.vis_kwargs.fmax)
+                                    self.config.psd.vis_kwargs.fmin,20)
                 dpg.add_plot_axis(dpg.mvYAxis, label=self.config.psd.vis.y_axis, tag="y_freq")
 
                 # series belong to a y-axis

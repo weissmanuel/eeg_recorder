@@ -3,7 +3,7 @@
 defaults:
   - headset: unicorn
   - experiment: ssvep
-  - psd: scipy
+  - psd: welch
   - _self_
 
 
