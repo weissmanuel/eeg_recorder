@@ -55,3 +55,11 @@ def generate_demo_data(
     ch = generate_channel_data(target_frequencies, weights, t)
     data = np.expand_dims(np.repeat(np.array([ch]), num_channels), axis=1)
     return data, local_clock()
+
+
+def get_default_file_path(config: DictConfig):
+    if 'recording' in config:
+        subject = config.recording.info.subject
+        session = config.recording.info.session
+        block = config.recording.info.block
+        return f"./data/recordings/recoding_subject_{subject}_session_{session}_block_{block}.fif"

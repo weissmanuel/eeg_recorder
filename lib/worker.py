@@ -18,7 +18,6 @@ from lib.persist import Persister
 import numpy as np
 import threading
 from threading import Thread
-from scipy.signal import butter, lfilter, iirnotch, filtfilt
 from typing import Tuple
 from multiprocessing import Lock
 import dearpygui.dearpygui as dpg
@@ -33,6 +32,7 @@ from sklearn.pipeline import Pipeline
 from sklearn.base import BaseEstimator
 from lib.train.pipeline import ThresholdingDecoder, load_pipeline
 from lib.utils import generate_demo_data
+from lib.preprocess.models import ProcessStage
 
 
 class Worker(ABC):
@@ -181,9 +181,9 @@ class RecordingWorker(ProcessWorker):
         duration = self.stream_store.duration
 
         if len(self.stream_store.times) > 1:
-            delta_seconds = self.stream_store.times[-1] - self.stream_store.times[0]
-            self.stream_store.last_sample_datetime = self.stream_store.first_sample_datetime + timedelta(
-                seconds=delta_seconds)
+            delta_seconds = float(self.stream_store.times[-1] - self.stream_store.times[0])
+            self.stream_store.last_sample_datetime = (self.stream_store.first_sample_datetime +
+                                                      timedelta(seconds=delta_seconds))
         else:
             self.stream_store.last_sample_datetime = self.stream_store.first_sample_datetime
 
@@ -232,7 +232,7 @@ class RecordingWorker(ProcessWorker):
                         self.add_data(values, times, recording_stopped_at)
 
                         if self.stream_store.iterations == 0:
-                            self.log_first_iteration(times)
+                            self.log_first_iteration(times.tolist())
 
                         self.stream_store.increment_iterations()
                 else:
@@ -262,7 +262,7 @@ class PersistenceWorker(ProcessWorker):
                  interval: int,
                  recorder_store: RecorderStore,
                  stream_stores: List[StreamStore],
-                 persister: Persister
+                 persisters: List[Persister]
                  ):
         super().__init__(lock)
 
@@ -271,16 +271,20 @@ class PersistenceWorker(ProcessWorker):
         self.recorder_store = recorder_store
         self.stream_stores = stream_stores
 
-        self.persister = persister
+        self.persisters = persisters
 
         self.process = self.get_new_process()
+
+    def persist(self):
+        for persister in self.persisters:
+            persister.save(self.stream_stores, intermediate_save=True)
 
     def work(self, lock: Lock):
         while self.recorder_store.is_recording:
             time.sleep(self.interval)
             self.recorder_store.pause_recording()
             self.lock.acquire()
-            self.persister.save(self.stream_stores, intermediate_save=True)
+            self.persist()
             self.lock.release()
             self.recorder_store.resume_recording()
 
@@ -350,7 +354,7 @@ class RealTimeRecorder(RealTimeWorker, _RealTimeRecorderMixin):
                     self.lock.release()
 
 
-class RealTimeSSVEPDecoder(RealTimeWorker, _RealTimeRecorderMixin):
+class RealTimeDecoder(RealTimeWorker, _RealTimeRecorderMixin):
 
     def __init__(self,
                  recorder_lock: Lock,
@@ -359,37 +363,26 @@ class RealTimeSSVEPDecoder(RealTimeWorker, _RealTimeRecorderMixin):
                  visualizer_lock: Lock,
                  plot_store: PlotStore,
                  config: DictConfig,
-                 spectral_average: int | None = None
                  ):
         super().__init__(recorder_lock, recorder_store, real_time_store)
 
+        self.visualizer_lock = visualizer_lock
         self.plot_store = plot_store
-
-        self.process: Process = self.get_new_process()
-        self.notch_coefficients = self.init_notch()
-        self.band_pass_coefficients = self.init_bandpass()
-
         self.config = config
 
-        self.spectral_average = spectral_average
-        self.spectral_queue = deque(maxlen=spectral_average) if spectral_average is not None else None
+        self.preprocessors: List[Preprocessor] = get_preprocessors(self.config.experiment.preprocessors,
+                                                                   stages=[ProcessStage.INFERENCE])
+        self.raw_preprocessors: List[RawPreprocessor] = get_raw_preprocessors(self.config.experiment.raw_preprocessors,
+                                                                              stages=[ProcessStage.INFERENCE])
 
         self.decoder = self.init_decoder()
-        self.labels = config.experiment.labels
-        self.recorder_lock = recorder_lock
-        self.visualizer_lock = visualizer_lock
-
-        self.queue = deque(maxlen=self.real_time_store.visualisation_window_size)
-
-        self.preprocessors: List[Preprocessor] = get_preprocessors(self.config.preprocessors)
-        self.raw_preprocessors: List[RawPreprocessor] = get_raw_preprocessors(self.config.experiment.raw_preprocessors)
 
     def init_decoder(self) -> Pipeline | BaseEstimator | None:
         model_type = self.config.experiment.decoding.type
         if model_type == 'threshold':
             return ThresholdingDecoder(sfreq=self.real_time_store.sfreq,
                                        target_frequencies=self.config.experiment.labels,
-                                       channel=self.real_time_store.channel,
+                                       channel=self.config.headset.target_channel,
                                        band_width=1.0)
         elif model_type == 'model':
             if self.config.experiment.decoding.decoder_path is not None and os.path.exists(
@@ -397,26 +390,6 @@ class RealTimeSSVEPDecoder(RealTimeWorker, _RealTimeRecorderMixin):
                 return load_pipeline(self.config.experiment.decoding.decoder_path)
         else:
             return None
-
-    def init_notch(self, notch: float = 50.0, qf: float = 5):
-        return iirnotch(notch, qf, self.real_time_store.sfreq)
-
-    def init_bandpass(self, order: int = 5):
-        nyq = 0.5 * self.real_time_store.sfreq
-        low = self.real_time_store.low_cut / nyq
-        high = self.real_time_store.high_cut / nyq
-        b, a = butter(order, [low, high], btype='band')
-        return b, a
-
-    def notch_filter(self, data):
-        b, a = self.init_notch()
-        y = filtfilt(b, a, data, axis=1)
-        return y
-
-    def butter_bandpass_filter(self, data):
-        b, a = self.init_bandpass()
-        y = lfilter(b, a, data, axis=1)
-        return y
 
     def preprocess(self, info: Info, data: ndarray) -> ndarray:
         if self.preprocessors is not None and len(self.preprocessors) > 0:
@@ -433,12 +406,35 @@ class RealTimeSSVEPDecoder(RealTimeWorker, _RealTimeRecorderMixin):
     def preprocess_data(self, data: ndarray) -> RawArray:
         info = create_info(self.config)
         data = self.preprocess(info=info, data=data)
-        # data = self.notch_filter(data)
-        # data = self.butter_bandpass_filter(data)
         raw = create_raw(data=data, info=info)
         raw = raw.pick(picks=['eeg'])
         raw = self.preprocess_raw(raw)
         return raw
+
+
+class RealTimeSSVEPDecoder(RealTimeDecoder):
+
+    def __init__(self,
+                 recorder_lock: Lock,
+                 recorder_store: RecorderStore,
+                 real_time_store: RealTimeStore,
+                 visualizer_lock: Lock,
+                 plot_store: PlotStore,
+                 config: DictConfig,
+                 spectral_average: int | None = None
+                 ):
+        super().__init__(recorder_lock, recorder_store, real_time_store, visualizer_lock, plot_store, config)
+
+        self.process: Process = self.get_new_process()
+
+        self.spectral_average = spectral_average
+        self.spectral_queue = deque(maxlen=spectral_average) if spectral_average is not None else None
+
+        self.labels = config.experiment.labels
+        self.recorder_lock = recorder_lock
+        self.visualizer_lock = visualizer_lock
+
+        self.queue = deque(maxlen=self.real_time_store.visualisation_window_size)
 
     def spectral_analysis(self, data: ndarray, channel: int = 0) -> Tuple[ndarray, ndarray]:
 
@@ -461,11 +457,11 @@ class RealTimeSSVEPDecoder(RealTimeWorker, _RealTimeRecorderMixin):
         psd_conf = self.config.psd
         method = psd_conf.method
         if self.config.psd.method == 'scipy':
-            return self.spectral_analysis(raw.get_data(), self.real_time_store.channel)
+            return self.spectral_analysis(raw.get_data(), self.config.headset.target_channel)
         else:
             amps, freqs = (raw.compute_psd(method=method, **psd_conf.vis_kwargs)
                            .get_data(return_freqs=True, fmin=psd_conf.vis_kwargs.fmin, fmax=psd_conf.vis_kwargs.fmax))
-            return amps[self.real_time_store.channel], freqs
+            return amps[self.config.headset.target_channel], freqs
 
     def get_time_axis(self, data: ndarray) -> ndarray:
         sfreq = self.real_time_store.sfreq
@@ -479,7 +475,7 @@ class RealTimeSSVEPDecoder(RealTimeWorker, _RealTimeRecorderMixin):
         self.plot_store.y_time = data[channel].tolist()
 
     def predict(self, data: ndarray) -> float:
-        if self.decoder is not None:
+        if False:
             y_pred = self.decoder.predict(data)
             if len(y_pred) == 1:
                 return self.labels[int(y_pred[0])]
@@ -535,6 +531,20 @@ class RealTimeVisualizer(RealTimeWorker):
         self.plot_store = plot_store
         self.plotting: bool = False
 
+        vis_config = config.experiment.visualisation
+
+        self.freq_x_limits = vis_config.freq_range
+        self.freq_y_limits = vis_config.freq_y_limits
+        self.freq_normalize = vis_config.freq_normalize
+        self.freq_scale = vis_config.freq_scale
+        self.freq_x_label = vis_config.freq_x_label
+        self.freq_y_label = vis_config.freq_y_label
+
+        self.time_y_limits = vis_config.time_y_limits
+        self.time_normalize = vis_config.time_normalize
+        self.time_x_label = vis_config.time_x_label
+        self.time_y_label = vis_config.time_y_label
+
         self.config = config
         self.last_freq_max = 0
         self.last_y_time_max = 0
@@ -543,43 +553,54 @@ class RealTimeVisualizer(RealTimeWorker):
     def work(self, lock: Lock):
         dpg.create_context()
 
-        def update_series():
-            while dpg.is_dearpygui_running() and self.recorder_store.is_recording:
+        def update_freq_data():
+            x_freq, y_freq, max_freq = copy.copy(self.plot_store.get_freq_data())
 
-                x_freq, y_freq, max_freq = copy.copy(self.plot_store.get_freq_data())
-                received_delay, processing_delay, total_delay = copy.copy(self.plot_store.get_delays())
-                if x_freq is not None and y_freq is not None and len(x_freq) > 0 and len(y_freq) > 0:
+            if x_freq is not None and y_freq is not None and len(x_freq) > 0 and len(y_freq) > 0:
+                if self.freq_y_limits is None:
                     y_freq_max = np.max(y_freq)
                     if y_freq_max > self.last_freq_max * 1.1 or y_freq_max < self.last_freq_max * 0.9:
                         self.last_freq_max = y_freq_max
                         dpg.set_axis_limits("y_freq", 0, y_freq_max * 1.1)
-                    dpg.set_value('freq_series', [x_freq, y_freq])
-                    dpg.set_value('result_text', max_freq)
+                dpg.set_value('freq_series', [x_freq, y_freq])
+                dpg.set_value('result_text', max_freq)
 
-                x_time, y_time = copy.copy(self.plot_store.get_time_data())
-                if x_time is not None and y_time is not None and len(x_time) > 0 and len(y_time) > 0:
-                    # y_time_max = np.max(y_time)
-                    # if y_time_max > self.last_y_time_max * 1.1 or y_time_max < self.last_y_time_max * 0.9:
-                    #     self.last_y_time_max = y_time_max
-                    #     dpg.set_axis_limits("y_time", np.min(y_time) * 0.9, y_time_max * 1.1)
-                    dpg.set_value('time_series', [x_time, y_time])
-                dpg.set_value('total_delay_text', np.round(total_delay, 3))
-                dpg.set_value('receive_delay_text', np.round(received_delay, 3))
-                dpg.set_value('processing_delay_text', np.round(processing_delay, 3))
+        def update_time_data():
+            x_time, y_time = copy.copy(self.plot_store.get_time_data())
+            if x_time is not None and y_time is not None and len(x_time) > 0 and len(y_time) > 0:
+                if self.time_y_limits is None:
+                    y_time_max = np.max(y_time)
+                    if y_time_max > self.last_y_time_max * 1.1 or y_time_max < self.last_y_time_max * 0.9:
+                        self.last_y_time_max = y_time_max
+                        dpg.set_axis_limits("y_time", np.min(y_time) * 0.9, y_time_max * 1.1)
+                dpg.set_value('time_series', [x_time, y_time])
+
+        def update_metadata():
+            received_delay, processing_delay, total_delay = copy.copy(self.plot_store.get_delays())
+            dpg.set_value('total_delay_text', np.round(total_delay, 3))
+            dpg.set_value('receive_delay_text', np.round(received_delay, 3))
+            dpg.set_value('processing_delay_text', np.round(processing_delay, 3))
+
+        def update_series():
+            while dpg.is_dearpygui_running() and self.recorder_store.is_recording:
+                update_freq_data()
+                update_time_data()
+                update_metadata()
                 time.sleep(0.01)
 
         with dpg.window(label="Spectral Analysis", tag="win_feq", pos=[0, 0], width=400, height=400):
             with dpg.plot(label="Spectral Analysis", height=400, width=400):
-                # optionally create legend
                 dpg.add_plot_legend()
 
-                # REQUIRED: create x and y axes
-                dpg.add_plot_axis(dpg.mvXAxis, label="Frequencies", tag='x_freq')
-                dpg.set_axis_limits("x_freq",
-                                    self.config.psd.vis_kwargs.fmin,20)
-                dpg.add_plot_axis(dpg.mvYAxis, label=self.config.psd.vis.y_axis, tag="y_freq")
+                dpg.add_plot_axis(dpg.mvXAxis, label=self.freq_x_label, tag='x_freq')
+                dpg.add_plot_axis(dpg.mvYAxis, label=self.freq_y_label, tag="y_freq")
 
-                # series belong to a y-axis
+                if self.freq_y_limits is not None:
+                    dpg.set_axis_limits("y_freq", self.freq_y_limits[0], self.freq_y_limits[1])
+
+                if self.freq_x_limits is not None:
+                    dpg.set_axis_limits("x_freq", self.freq_x_limits[0], self.freq_x_limits[1])
+
                 dpg.add_line_series(self.plot_store.x_freq, self.plot_store.y_freq, label="Spectral Analysis",
                                     parent="y_freq", tag="freq_series")
 
@@ -595,16 +616,16 @@ class RealTimeVisualizer(RealTimeWorker):
 
         with dpg.window(label="EEG Data", tag="win_time", width=600, height=450, pos=[0, 400]):
             with dpg.plot(label="EEG Data", width=600, height=400):
-                # optionally create legend
                 dpg.add_plot_legend()
 
-                # REQUIRED: create x and y axes
-                dpg.add_plot_axis(dpg.mvXAxis, label="Time Samples", tag='x_time')
-                dpg.set_axis_limits("x_time", 0, self.config.real_time.visualisation_window_size_seconds)
-                dpg.add_plot_axis(dpg.mvYAxis, label="Volts", tag="y_time")
-                dpg.set_axis_limits("y_time", -400, 400)
+                dpg.add_plot_axis(dpg.mvXAxis, label=self.time_x_label, tag='x_time')
+                dpg.set_axis_limits("x_time", 0, self.config.experiment.visualisation.window_size_seconds)
 
-                # series belong to a y-axis
+                dpg.add_plot_axis(dpg.mvYAxis, label=self.time_y_label, tag="y_time")
+                if self.time_y_limits is not None:
+                    y_limits = self.time_y_limits
+                    dpg.set_axis_limits("y_time", y_limits[0], y_limits[1])
+
                 dpg.add_line_series(self.plot_store.x_time, self.plot_store.x_time, label="EEG Signal", parent="y_time",
                                     tag="time_series")
 

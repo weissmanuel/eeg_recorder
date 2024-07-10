@@ -3,6 +3,7 @@ from mne.io import BaseRaw
 from typing import List
 from enum import Enum
 from lib.utils import config_to_primitive
+from .models import ProcessStage
 
 
 class RawPreprocessors(Enum):
@@ -13,6 +14,16 @@ class RawPreprocessors(Enum):
 
 
 class RawPreprocessor(ABC):
+
+    name: str
+    stages: List[ProcessStage] | None = None
+
+    def __init__(self, name: str, stages: List[ProcessStage] | List[str] | None = None):
+        self.name = name
+        if stages is not None:
+            self.stages = [ProcessStage.from_str(stage) if isinstance(stage, str) else stage for stage in stages]
+        else:
+            self.stages = None
 
     @abstractmethod
     def preprocess(self, raw: BaseRaw) -> BaseRaw:
@@ -28,7 +39,9 @@ class RawFilter(RawPreprocessor):
                  low_cut: float,
                  high_cut: float,
                  method: str = 'iir',
+                 stages: List[ProcessStage] | List[str] | None = None
                  ):
+        super().__init__(RawPreprocessors.BANDPASS_FILTER.name, stages)
         self.low_cut = low_cut
         self.high_cut = high_cut
         self.method = method
@@ -45,8 +58,10 @@ class RawNotchFilter(RawPreprocessor):
                  freqs: float | List[float],
                  method: str = 'iir',
                  filter_length: float | List[float] | None = 'auto',
-                 notch_widths: float | List[float] | None = 1
+                 notch_widths: float | List[float] | None = 1,
+                 stages: List[ProcessStage] | List[str] | None = None
                  ):
+        super().__init__(RawPreprocessors.NOTCH_FILTER.name, stages)
         self.freqs = freqs
         self.method = method
         self.filter_length = filter_length
@@ -60,7 +75,8 @@ class RawNotchFilter(RawPreprocessor):
 
 class Resample(RawPreprocessor):
 
-    def __init__(self, sfreq: float):
+    def __init__(self, sfreq: float, stages: List[ProcessStage] | List[str] | None = None):
+        super().__init__(RawPreprocessors.RESAMPLE.name, stages)
         self.sfreq = sfreq
 
     def preprocess(self, raw: BaseRaw) -> BaseRaw:
@@ -70,7 +86,12 @@ class Resample(RawPreprocessor):
 
 class Reference(RawPreprocessor):
 
-    def __init__(self, ref_channels: str | List[str] = 'average', projection: bool = False):
+    def __init__(self,
+                 ref_channels: str | List[str] = 'average',
+                 projection: bool = False,
+                 stages: List[ProcessStage] | List[str] | None = None
+                 ):
+        super().__init__(RawPreprocessors.REFERENCE.name, stages)
         self.ref_channels = ref_channels
         self.projection = projection
 
@@ -94,5 +115,9 @@ def get_raw_preprocessor(name: str, **kwargs) -> RawPreprocessor:
             raise ValueError(f'Unknown raw preprocessor {name}')
 
 
-def get_raw_preprocessors(configs: List[dict]) -> List[RawPreprocessor]:
-    return [get_raw_preprocessor(config['name'], **config['kwargs']) for config in configs]
+def get_raw_preprocessors(configs: List[dict], stages: List[ProcessStage] | None = None) -> List[RawPreprocessor]:
+    preprocessors = [get_raw_preprocessor(config['name'], **config['kwargs']) for config in configs]
+    if stages is not None:
+        preprocessors = [preprocessor for preprocessor in preprocessors if preprocessor.stages is None or any(
+            stage in preprocessor.stages for stage in stages)]
+    return preprocessors

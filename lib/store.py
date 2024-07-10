@@ -402,21 +402,16 @@ class RealTimeStore:
                  manager: Manager,
                  source_id: str,
                  stream_type: StreamType,
-                 channel: int,
                  sfreq: float,
                  window_size_seconds: float = 5,
                  window_shift_seconds: float = 0.1,
                  buffer_size_seconds: int = 60,
-                 low_cut: float = 1,
-                 high_cut: float = 30,
-                 notch: float = 50,
                  visualisation_window_size_seconds: float = 5,
                  labels: List[str] = None,
                  ):
         self.source_id = source_id
         self.stream_type = stream_type
 
-        self.channel = channel
         self.sfreq = sfreq
         self.window_size_seconds = window_size_seconds
         self.window_shift_seconds = window_shift_seconds
@@ -424,10 +419,6 @@ class RealTimeStore:
         self.window_shift = int(window_shift_seconds * sfreq)
         self.buffer_size_seconds = buffer_size_seconds
         self.buffer_size = int(buffer_size_seconds * sfreq)
-
-        self.low_cut = low_cut
-        self.high_cut = high_cut
-        self.notch = notch
 
         self._buffer = manager.list([0] * self.buffer_size)
 
@@ -450,18 +441,14 @@ class RealTimeStore:
     def from_config(config: DictConfig, manager: Manager):
         return RealTimeStore(
             manager=manager,
-            source_id=config.source_id,
-            stream_type=StreamType.from_str(config.stream_type),
-            channel=config.channel,
-            sfreq=config.sfreq,
-            window_size_seconds=config.window_size_seconds,
-            window_shift_seconds=config.window_shift_seconds,
-            buffer_size_seconds=config.buffer_size_seconds,
-            low_cut=config.bandpass.low_cut,
-            high_cut=config.bandpass.high_cut,
-            notch=config.notch,
-            visualisation_window_size_seconds=config.visualisation_window_size_seconds,
-            labels=config.labels
+            source_id=config.headset.source_id,
+            stream_type=StreamType.from_str(config.headset.stream_type),
+            sfreq=config.headset.sfreq,
+            window_size_seconds=config.experiment.window_size_seconds,
+            window_shift_seconds=config.experiment.window_shift_seconds,
+            buffer_size_seconds=config.real_time.buffer_size_seconds,
+            visualisation_window_size_seconds=config.experiment.visualisation.window_size_seconds,
+            labels=config.experiment.labels
         )
 
     @property

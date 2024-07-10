@@ -1,0 +1,6 @@
+
+
+defaults:
+  - persisters: persisters
+  - workers: workers
+  - _self_

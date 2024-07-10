@@ -1,0 +1,13 @@
+
+info:
+  subject: 1
+  session: 0
+  block: 0
+
+buffer_size_seconds: 60
+
+preprocessors: []
+#preprocessors:
+#  - name: 'eeg_scaler'
+#    scale: 1e-6
+#    channel_types: ['eeg']

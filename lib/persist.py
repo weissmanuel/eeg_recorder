@@ -12,6 +12,8 @@ from pathlib import Path
 import logging
 from datetime import timezone
 from enum import Enum
+from lib.utils import get_default_file_path
+from lib.preprocess.models import ProcessStage
 
 
 class PersistingMode(Enum):
@@ -28,6 +30,12 @@ class Persister(ABC):
     config: DictConfig
     persisting_mode: PersistingMode
 
+    def __init__(self, persisting_mode: PersistingMode | str = PersistingMode.REPLACE):
+        if isinstance(persisting_mode, str):
+            self.persisting_mode = PersistingMode.from_string(persisting_mode)
+        else:
+            self.persisting_mode = persisting_mode
+
     @abstractmethod
     def save(self, stores: List[StreamStore], **kwargs) -> Union[any, Union[str, Path]]:
         pass
@@ -41,20 +49,9 @@ class MneRawPersister(Persister):
     config: DictConfig
     persisting_mode: PersistingMode
 
-    def __init__(self, config):
+    def __init__(self, config, persisting_mode: PersistingMode | str = PersistingMode.REPLACE):
+        super().__init__(persisting_mode)
         self.config = config
-
-        if 'persisting_mode' in self.config:
-            self.persisting_mode = PersistingMode.from_string(self.config.persisting_mode)
-        else:
-            self.persisting_mode = PersistingMode.REPLACE
-
-    def get_file_path(self):
-        if 'recording' in self.config:
-            subject = self.config.recording.subject
-            session = self.config.recording.session
-            block = self.config.recording.block
-            return f"./data/recordings/recoding_subject_{subject}_session_{session}_block_{block}.fif"
 
     def create_mne_info(self, stream_store: StreamStore) -> Info:
         info = stream_store.stream_info.copy()
@@ -68,7 +65,8 @@ class MneRawPersister(Persister):
         return info
 
     def preprocess(self, info: Info, data: ndarray) -> ndarray:
-        preprocessors: List[Preprocessor] = get_preprocessors(self.config.preprocessors)
+        preprocessors: List[Preprocessor] = get_preprocessors(self.config.recording.preprocessors,
+                                                              stages=[ProcessStage.RECORDING])
         if preprocessors is not None and len(preprocessors) > 0:
             for preprocessor in preprocessors:
                 data = preprocessor(data, info=info)
@@ -149,7 +147,7 @@ class MneRawPersister(Persister):
                  intermediate_save: bool = False) -> Tuple[RawArray, Path]:
         raw = self.get_raw(signal_store, marker_stores, intermediate_save)
         self.logger.info(f"Saving raw data to {file_path}")
-        file_path = Path(file_path if file_path is not None else self.get_file_path())
+        file_path = Path(file_path if file_path is not None else get_default_file_path(config=self.config))
         file_path.parent.mkdir(parents=True, exist_ok=True)
         raw, file_path = self.save_by_mode(raw, file_path)
         self.logger.info(f"Saved raw data to {file_path}")
@@ -158,7 +156,8 @@ class MneRawPersister(Persister):
     def save(self,
              stores: List[StreamStore],
              file_path: Union[str, None] = None,
-             intermediate_save: bool = False) -> Tuple[RawArray, Path]:
+             intermediate_save: bool = False,
+             **kwargs) -> Tuple[RawArray, Path]:
         signal_store = [store for store in stores if store.stream_type.is_signal]
         assert len(signal_store) == 1, "Only one signal store is currently supported."
 
@@ -168,7 +167,7 @@ class MneRawPersister(Persister):
         return raw, file_path
 
     def delete(self):
-        file_path: Path = Path(self.get_file_path())
+        file_path: Path = Path(get_default_file_path(config=self.config))
         try:
             file_path.unlink(missing_ok=True)
             self.logger.info(f"Deleted Existing File: {file_path}")
@@ -176,10 +175,16 @@ class MneRawPersister(Persister):
             self.logger.info(f"Failed to delete file: {file_path}")
 
 
-def get_persister(name: str | None, config: DictConfig) -> Persister | None:
+def get_persister(name: str | None, config: DictConfig, **kwargs) -> Persister | None:
     if name is None:
         return None
     if name == 'mne_raw_persister':
-        return MneRawPersister(config)
+        return MneRawPersister(config, **kwargs)
     else:
         raise ValueError(f"Persister {name} not found")
+
+
+def get_persisters(config: DictConfig) -> List[Persister]:
+    if hasattr(config.experiment, 'persisters') and config.experiment.persisters is not None:
+        return [get_persister(persister, config) for persister in config.experiment.persisters]
+

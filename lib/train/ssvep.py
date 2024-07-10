@@ -1,8 +1,6 @@
 from omegaconf import DictConfig
 from lib.mne import load_raw, generate_epochs
 from pathlib import Path
-from lib.preprocess.raw_preprocess import RawNotchFilter, RawFilter, Resample
-from lib.preprocess.epoch_preprocess import EpochFilter
 from lib.preprocess.data_preprocess import EpochWindowSplitter
 from sklearn.pipeline import Pipeline
 from lib.train.pipeline import build_pipeline, save_pipeline
@@ -11,6 +9,7 @@ from lib.utils import config_to_primitive
 from sklearn.utils import shuffle as sk_shuffle
 from lib.preprocess.raw_preprocess import get_raw_preprocessors
 from lib.preprocess.epoch_preprocess import get_epoch_preprocessors
+from lib.preprocess.models import ProcessStage
 
 
 def get_events_mapping() -> dict:
@@ -40,14 +39,15 @@ def train_ssvep_classifier(config: DictConfig, file_path: str):
 
     raw = load_raw(file_path)
 
-    raw_preprocessors = get_raw_preprocessors(config.experiment.raw_preprocessors)
+    raw_preprocessors = get_raw_preprocessors(config.experiment.raw_preprocessors, stages=[ProcessStage.TRAINING])
     for preprocessor in raw_preprocessors:
         raw = preprocessor(raw)
 
     epochs = generate_epochs(raw, event_mapping=get_events_mapping(),
                              t_min=event_offset_seconds, t_max=signal_duration_seconds)
 
-    epoch_preprocessors = get_epoch_preprocessors(config.experiment.epoch_preprocessors)
+    epoch_preprocessors = get_epoch_preprocessors(config.experiment.epoch_preprocessors,
+                                                  stages=[ProcessStage.TRAINING])
     for preprocessor in epoch_preprocessors:
         epochs = preprocessor.preprocess(epochs)
 
