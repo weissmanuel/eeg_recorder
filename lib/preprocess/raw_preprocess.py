@@ -105,14 +105,15 @@ class Reference(RawPreprocessor):
 
 class ChannelInterpolation(RawPreprocessor):
 
-    def __init__(self, threshold: float, stages: List[ProcessStage] | List[str] | None = None, verbose: bool = False):
+    def __init__(self, threshold: float, stages: List[ProcessStage] | List[str] | None = None,
+                 verbose: bool = False):
         super().__init__(RawPreprocessors.CHANNEL_INTERPOLATION.name, stages)
         self.threshold = threshold
         self.verbose = verbose
 
-    def mark_bad_segments(self, raw: BaseRaw):
+    def get_bad_channels(self, raw: BaseRaw):
         try:
-            data = raw.get_data(copy=False)
+            data = raw.get_data(verbose=self.verbose)
             if data.size == 0:
                 raise ValueError("The data is empty. Please check the raw instance.")
             if not np.issubdtype(data.dtype, np.number):
@@ -125,26 +126,22 @@ class ChannelInterpolation(RawPreprocessor):
                 if self.verbose:
                     print("No segments exceed the threshold.")
                 return np.array([])
-            bad_times = raw.times[np.any(bad_segments, axis=0)]
-            return bad_times
+            bad_channels = np.any(bad_segments, axis=1)
+            return np.where(bad_channels)[0]
         except Exception as e:
             print(f"An error occurred while marking bad segments: {e}")
             return np.array([])
 
     def interpolate_bad_segments(self, raw: BaseRaw):
         try:
-            bad_times = self.mark_bad_segments(raw)
-            if bad_times.size == 0:
-                print("No bad segments to interpolate.")
+            bad_channels = self.get_bad_channels(raw)
+            if bad_channels.size == 0:
+                if self.verbose:
+                    print("No bad segments to interpolate.")
                 return raw
-
-            durations = np.ones_like(bad_times) * (bad_times[1] - bad_times[0]) \
-                if bad_times.size > 1 else np.array([0.1])  # default duration
-
-            annotations = mne.Annotations(onset=bad_times, duration=durations, description='BAD_artifact',
-                                          orig_time=None)
-            raw.set_annotations(annotations)
-            raw = raw.interpolate_bads(reset_bads=True, mode='accurate', verbose=self.verbose)
+            ch_names = raw.info['ch_names']
+            raw.info['bads'] = [ch_names[i] for i in bad_channels]
+            raw = raw.interpolate_bads(reset_bads=True, mode='accurate', verbose=50)
             return raw
         except IndexError as e:
             print(f"Index error occurred during interpolation: {e}")
@@ -169,7 +166,7 @@ class ChannelPicker(RawPreprocessor):
         self.picks = picks
 
     def preprocess(self, raw: BaseRaw) -> BaseRaw:
-        raw.pick_channels(self.picks)
+        raw.pick(self.picks)
         return raw
 
 

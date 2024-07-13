@@ -531,7 +531,7 @@ class RealTimeSSVEPDecoder(RealTimeDecoder):
         self.plot_store.y_time = data[channel].tolist()
 
     def predict(self, data: ndarray) -> float:
-        if data is not None and self.decoder is not None:
+        if False:
             y_pred = self.decoder.predict(data)
             if len(y_pred) == 1:
                 return self.labels[int(y_pred[0])]
