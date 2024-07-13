@@ -50,6 +50,14 @@ raw_preprocessors:
       high_cut: 30
       method: 'fir'
 #      stages: ['training']
+  - name: 'channel_picker'
+    kwargs:
+      picks: ['PO7', 'Oz', 'PO8']
+  #      stages: ['training']
+  - name: 'channel_interpolation'
+    kwargs:
+      threshold: 50.0
+  #      stages: ['training']
   - name: 'reference'
     kwargs:
       ref_channels: 'average'
