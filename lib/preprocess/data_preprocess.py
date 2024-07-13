@@ -71,7 +71,7 @@ class NotchFilter(Preprocessor):
     quality: float
     sfreq: float
 
-    coefficients: List = []
+    coefficients: ndarray
 
     def __init__(self,
                  freqs: List[float] | float,
@@ -84,9 +84,11 @@ class NotchFilter(Preprocessor):
         freqs = [freqs] if isinstance(freqs, (float, int)) else freqs
         self.freqs = freqs
 
+        coefficients = []
         for freq in self.freqs:
             b, a = iirnotch(freq, quality, sfreq)
-            self.coefficients.append((b, a))
+            coefficients.append((b, a))
+        self.coefficients = np.array(coefficients)
 
     def __call__(self, data: ndarray, *args, **kwargs) -> ndarray:
         for b, a in self.coefficients:

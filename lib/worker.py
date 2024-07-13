@@ -27,6 +27,7 @@ from mne.io import RawArray
 from mne import Info
 from lib.preprocess.data_preprocess import get_preprocessors, Preprocessor
 from lib.preprocess.raw_preprocess import get_raw_preprocessors, RawPreprocessor
+from lib.preprocess.rt_preprocessor import get_rt_preprocessors, RTPreprocessor
 from collections import deque
 from sklearn.pipeline import Pipeline
 from sklearn.base import BaseEstimator
@@ -391,7 +392,7 @@ class RealTimeDecoder(RealTimeWorker, _RealTimeRecorderMixin):
                                                                    stages=[ProcessStage.INFERENCE])
         self.raw_preprocessors: List[RawPreprocessor] = get_raw_preprocessors(self.config.experiment.raw_preprocessors,
                                                                               stages=[ProcessStage.INFERENCE])
-
+        self.rt_preprocessors: List[RTPreprocessor] = get_rt_preprocessors(self.config.experiment.rt_preprocessors)
         self.decoder = self.init_decoder()
         self.queue = deque(maxlen=self.real_time_store.visualisation_window_size)
 
@@ -420,6 +421,7 @@ class RealTimeDecoder(RealTimeWorker, _RealTimeRecorderMixin):
         data, last_sample_time = self.get_data(self.stream)
         last_received_time = local_clock()
         if data is not None:
+            data = self.rt_preprocess(data)
             self.queue.extend(data.T.tolist())
             if len(self.queue) >= self.real_time_store.visualisation_window_size:
                 return np.array(self.queue).T, last_sample_time, last_received_time
@@ -441,6 +443,12 @@ class RealTimeDecoder(RealTimeWorker, _RealTimeRecorderMixin):
             return self.retrieve_direct_data()
         else:
             return self.retrieve_recorder_data()
+
+    def rt_preprocess(self, data: ndarray) -> ndarray:
+        if self.rt_preprocessors is not None and len(self.rt_preprocessors) > 0:
+            for preprocessor in self.rt_preprocessors:
+                data = preprocessor(data)
+        return data
 
     def preprocess(self, info: Info, data: ndarray) -> ndarray:
         if self.preprocessors is not None and len(self.preprocessors) > 0:

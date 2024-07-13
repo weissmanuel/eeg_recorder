@@ -16,6 +16,8 @@ window_size_seconds: 1
 window_shift_seconds: 0.1
 
 
+rt_preprocessors: []
+
 # Preprocessors applied to the raw input signal
 # received by the recorder / headset
 #preprocessors: []

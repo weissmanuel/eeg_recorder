@@ -3,11 +3,12 @@
 source_id: 'UN-2023.05.69'
 stream_type: 'EEG'
 n_channels: 17
+n_eeg_channels: 8
 channel_names: ['Fz', 'C3', 'Cz', 'C4', 'Pz', 'PO7', 'Oz', 'PO8', 'acc_x', 'acc_y', 'acc_z', 'gyro_x', 'gyro_y', 'gyro_z', 'battery_level', 'counter', 'valid_indicator']
 channel_types: ['eeg', 'eeg', 'eeg', 'eeg', 'eeg', 'eeg', 'eeg', 'eeg', 'misc', 'misc','misc', 'misc', 'misc', 'misc', 'misc', 'misc', 'misc']
 sfreq: 250
 montage: 'standard_1020'
-target_channel: 1
+target_channel: 0
 
 channel_names_mapping:
   '0': 'Fz'

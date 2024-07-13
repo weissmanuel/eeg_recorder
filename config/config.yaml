@@ -1,8 +1,8 @@
 
 
 defaults:
-  - experiment: ssvep
-  - headset: unicorn
+  - experiment: demo
+  - headset: demo
   - persistence: persistence
   - psd: welch
   - real_time: default
