@@ -3,4 +3,4 @@
 mne_raw_persister:
   name: 'mne_raw_persister'
   kwargs:
-    mode: 'replace' # 'replace' or 'continuous'
+    persisting_mode: 'replace' # 'replace' or 'continuous'

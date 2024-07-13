@@ -175,9 +175,11 @@ class MneRawPersister(Persister):
             self.logger.info(f"Failed to delete file: {file_path}")
 
 
-def get_persister(name: str | None, config: DictConfig, **kwargs) -> Persister | None:
-    if name is None:
+def get_persister(persister_config: DictConfig | dict, config: DictConfig) -> Persister | None:
+    if not hasattr(persister_config, 'name'):
         return None
+    name = persister_config['name']
+    kwargs = persister_config.get('kwargs', {})
     if name == 'mne_raw_persister':
         return MneRawPersister(config, **kwargs)
     else:
