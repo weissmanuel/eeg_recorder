@@ -19,19 +19,19 @@ event_offset_seconds: 2
 
 # Preprocessors applied to the raw input signal
 # received by the recorder / headset
-#preprocessors: []
-preprocessors:
-  - name: 'notch_filter'
-    freqs: 50
-    quality: 30
-    sfreq: ${headset.sfreq}
-    stages: ['inference']
-  - name: 'bandpass_filter'
-    low_cut: 4
-    high_cut: 30
-    order: 4
-    sfreq: ${headset.sfreq}
-    stages: ['inference']
+preprocessors: []
+#preprocessors:
+#  - name: 'notch_filter'
+#    freqs: 50
+#    quality: 30
+#    sfreq: ${headset.sfreq}
+#    stages: ['inference']
+#  - name: 'bandpass_filter'
+#    low_cut: 4
+#    high_cut: 30
+#    order: 4
+#    sfreq: ${headset.sfreq}
+#    stages: ['inference']
 
 
 # Preprocessors applied to the mne raw object
@@ -43,13 +43,13 @@ raw_preprocessors:
       method: 'iir'
       filter_length: 'auto'
       notch_widths: 5
-      stages: ['training']
+#      stages: ['training']
   - name: 'bandpass_filter'
     kwargs:
       low_cut: 4
       high_cut: 30
       method: 'fir'
-      stages: ['training']
+#      stages: ['training']
   - name: 'reference'
     kwargs:
       ref_channels: 'average'

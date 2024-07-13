@@ -33,6 +33,7 @@ from sklearn.base import BaseEstimator
 from lib.train.pipeline import ThresholdingDecoder, load_pipeline
 from lib.utils import generate_demo_data
 from lib.preprocess.models import ProcessStage
+import mne
 
 
 class Worker(ABC):
@@ -403,11 +404,26 @@ class RealTimeDecoder(RealTimeWorker, _RealTimeRecorderMixin):
                 raw = preprocessor(raw)
         return raw
 
+    def mark_bad_segments(self, raw):
+        threshold = 100
+        data = raw.get_data()
+        bad_segments = np.abs(data) > threshold
+        bad_times = raw.times[np.any(bad_segments, axis=0)]
+        return bad_times
+
+    def interpolate_bads(self, raw):
+        bad_times = self.mark_bad_segments(raw)
+        annotations = mne.Annotations(onset=bad_times, duration=np.ones_like(bad_times) * bad_times[1] - bad_times[0], description='BAD_artifact', orig_time=None)
+        raw.set_annotations(annotations)
+        raw = raw.interpolate_bads(mode='accurate', verbose=False)
+        return raw
+
     def preprocess_data(self, data: ndarray) -> RawArray:
         info = create_info(self.config)
         data = self.preprocess(info=info, data=data)
         raw = create_raw(data=data, info=info)
         raw = raw.pick(picks=['eeg'])
+        # raw = self.interpolate_bads(raw)
         raw = self.preprocess_raw(raw)
         return raw
 
@@ -459,7 +475,7 @@ class RealTimeSSVEPDecoder(RealTimeDecoder):
         if self.config.psd.method == 'scipy':
             return self.spectral_analysis(raw.get_data(), self.config.headset.target_channel)
         else:
-            amps, freqs = (raw.compute_psd(method=method, **psd_conf.vis_kwargs)
+            amps, freqs = (raw.compute_psd(method=method, **psd_conf.vis_kwargs, verbose=False)
                            .get_data(return_freqs=True, fmin=psd_conf.vis_kwargs.fmin, fmax=psd_conf.vis_kwargs.fmax))
             return amps[self.config.headset.target_channel], freqs
 
