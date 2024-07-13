@@ -13,7 +13,7 @@ persister_workers: null
 labels: [6, 10, 15, 19]
 
 window_size_seconds: 1
-window_shift_seconds: 0.1
+window_shift_seconds: null
 signal_duration_seconds: 15
 event_offset_seconds: 2
 
