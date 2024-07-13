@@ -404,7 +404,7 @@ class RealTimeStore:
                  stream_type: StreamType,
                  sfreq: float,
                  window_size_seconds: float = 5,
-                 window_shift_seconds: float = 0.1,
+                 window_shift_seconds: float | None = 0.1,
                  buffer_size_seconds: int = 60,
                  visualisation_window_size_seconds: float = 5,
                  labels: List[str] = None,
@@ -416,7 +416,7 @@ class RealTimeStore:
         self.window_size_seconds = window_size_seconds
         self.window_shift_seconds = window_shift_seconds
         self.window_size = int(window_size_seconds * sfreq)
-        self.window_shift = int(window_shift_seconds * sfreq)
+        self.window_shift = int(window_shift_seconds * sfreq) if window_shift_seconds is not None else self.window_size
         self.buffer_size_seconds = buffer_size_seconds
         self.buffer_size = int(buffer_size_seconds * sfreq)
 

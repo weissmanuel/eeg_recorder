@@ -1,3 +1,4 @@
 
 enabled: True
 buffer_size_seconds: 60
+recording_mode: 'RECORDER' # 'RECORDER' or 'DECODER'

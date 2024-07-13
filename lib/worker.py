@@ -33,7 +33,7 @@ from sklearn.base import BaseEstimator
 from lib.train.pipeline import ThresholdingDecoder, load_pipeline
 from lib.utils import generate_demo_data
 from lib.preprocess.models import ProcessStage
-import mne
+from enum import Enum
 
 
 class Worker(ABC):
@@ -355,7 +355,20 @@ class RealTimeRecorder(RealTimeWorker, _RealTimeRecorderMixin):
                     self.lock.release()
 
 
+class RealTimeRecordingMode(Enum):
+    DECODER = 'DECODER'
+    RECORDER = 'RECORDER'
+
+    def __str__(self):
+        return self.value()
+
+    @staticmethod
+    def from_str(label: str) -> 'RealTimeRecordingMode':
+        return RealTimeRecordingMode[label.upper()]
+
+
 class RealTimeDecoder(RealTimeWorker, _RealTimeRecorderMixin):
+    stream: StreamLSL | None
 
     def __init__(self,
                  recorder_lock: Lock,
@@ -364,12 +377,15 @@ class RealTimeDecoder(RealTimeWorker, _RealTimeRecorderMixin):
                  visualizer_lock: Lock,
                  plot_store: PlotStore,
                  config: DictConfig,
+                 recording_mode: RealTimeRecordingMode = RealTimeRecordingMode.DECODER
                  ):
         super().__init__(recorder_lock, recorder_store, real_time_store)
 
+        self.recorder_lock = recorder_lock
         self.visualizer_lock = visualizer_lock
         self.plot_store = plot_store
         self.config = config
+        self.recording_mode = recording_mode
 
         self.preprocessors: List[Preprocessor] = get_preprocessors(self.config.experiment.preprocessors,
                                                                    stages=[ProcessStage.INFERENCE])
@@ -377,9 +393,17 @@ class RealTimeDecoder(RealTimeWorker, _RealTimeRecorderMixin):
                                                                               stages=[ProcessStage.INFERENCE])
 
         self.decoder = self.init_decoder()
+        self.queue = deque(maxlen=self.real_time_store.visualisation_window_size)
+
+    def init_recording(self):
+        if self.recording_mode == RealTimeRecordingMode.DECODER:
+            source_id = self.real_time_store.source_id
+            self.stream = connect(source_id, self.real_time_store.stream_type, self.real_time_store.buffer_size_seconds)
+            self.logger.info(f"Start Real-Time SSVEP Decoding for Stream: {source_id}")
 
     def init_decoder(self) -> Pipeline | BaseEstimator | None:
         model_type = self.config.experiment.decoding.type
+        # ToDo: Implement as usual trained pipeline
         if model_type == 'threshold':
             return ThresholdingDecoder(sfreq=self.real_time_store.sfreq,
                                        target_frequencies=self.config.experiment.labels,
@@ -391,6 +415,32 @@ class RealTimeDecoder(RealTimeWorker, _RealTimeRecorderMixin):
                 return load_pipeline(self.config.experiment.decoding.decoder_path)
         else:
             return None
+
+    def retrieve_direct_data(self) -> Tuple[ndarray, float, float] | Tuple[None, None, None]:
+        data, last_sample_time = self.get_data(self.stream)
+        last_received_time = local_clock()
+        if data is not None:
+            self.queue.extend(data.T.tolist())
+            if len(self.queue) >= self.real_time_store.visualisation_window_size:
+                return np.array(self.queue).T, last_sample_time, last_received_time
+        return None, None, None
+
+    def retrieve_recorder_data(self) -> Tuple[ndarray, float, float] | Tuple[None, None, None]:
+        self.recorder_lock.acquire()
+        data = self.real_time_store.get_data()
+        last_sample_time = self.real_time_store.last_sample_time
+        last_received_time = self.real_time_store.last_received_time
+        self.recorder_lock.release()
+        if data is not None:
+            data = data.T
+            return data, last_sample_time, last_received_time
+        return None, None, None
+
+    def retrieve_data(self) -> Tuple[ndarray, float, float] | Tuple[None, None, None]:
+        if self.recording_mode == RealTimeRecordingMode.DECODER:
+            return self.retrieve_direct_data()
+        else:
+            return self.retrieve_recorder_data()
 
     def preprocess(self, info: Info, data: ndarray) -> ndarray:
         if self.preprocessors is not None and len(self.preprocessors) > 0:
@@ -404,26 +454,11 @@ class RealTimeDecoder(RealTimeWorker, _RealTimeRecorderMixin):
                 raw = preprocessor(raw)
         return raw
 
-    def mark_bad_segments(self, raw):
-        threshold = 100
-        data = raw.get_data()
-        bad_segments = np.abs(data) > threshold
-        bad_times = raw.times[np.any(bad_segments, axis=0)]
-        return bad_times
-
-    def interpolate_bads(self, raw):
-        bad_times = self.mark_bad_segments(raw)
-        annotations = mne.Annotations(onset=bad_times, duration=np.ones_like(bad_times) * bad_times[1] - bad_times[0], description='BAD_artifact', orig_time=None)
-        raw.set_annotations(annotations)
-        raw = raw.interpolate_bads(mode='accurate', verbose=False)
-        return raw
-
     def preprocess_data(self, data: ndarray) -> RawArray:
         info = create_info(self.config)
         data = self.preprocess(info=info, data=data)
         raw = create_raw(data=data, info=info)
         raw = raw.pick(picks=['eeg'])
-        # raw = self.interpolate_bads(raw)
         raw = self.preprocess_raw(raw)
         return raw
 
@@ -437,9 +472,16 @@ class RealTimeSSVEPDecoder(RealTimeDecoder):
                  visualizer_lock: Lock,
                  plot_store: PlotStore,
                  config: DictConfig,
-                 spectral_average: int | None = None
+                 spectral_average: int | None = None,
+                 recording_mode: RealTimeRecordingMode = RealTimeRecordingMode.DECODER
                  ):
-        super().__init__(recorder_lock, recorder_store, real_time_store, visualizer_lock, plot_store, config)
+        super().__init__(recorder_lock=recorder_lock,
+                         recorder_store=recorder_store,
+                         real_time_store=real_time_store,
+                         visualizer_lock=visualizer_lock,
+                         plot_store=plot_store,
+                         config=config,
+                         recording_mode=recording_mode)
 
         self.process: Process = self.get_new_process()
 
@@ -449,8 +491,6 @@ class RealTimeSSVEPDecoder(RealTimeDecoder):
         self.labels = config.experiment.labels
         self.recorder_lock = recorder_lock
         self.visualizer_lock = visualizer_lock
-
-        self.queue = deque(maxlen=self.real_time_store.visualisation_window_size)
 
     def spectral_analysis(self, data: ndarray, channel: int = 0) -> Tuple[ndarray, ndarray]:
 
@@ -491,7 +531,7 @@ class RealTimeSSVEPDecoder(RealTimeDecoder):
         self.plot_store.y_time = data[channel].tolist()
 
     def predict(self, data: ndarray) -> float:
-        if False:
+        if data is not None and self.decoder is not None:
             y_pred = self.decoder.predict(data)
             if len(y_pred) == 1:
                 return self.labels[int(y_pred[0])]
@@ -513,23 +553,15 @@ class RealTimeSSVEPDecoder(RealTimeDecoder):
         return freqs, amps, result
 
     def work(self, lock: Lock):
-
-        source_id = self.real_time_store.source_id
-        stream = connect(source_id, self.real_time_store.stream_type, self.real_time_store.buffer_size_seconds)
-        self.logger.info(f"Start Real-Time SSVEP Decoding for Stream: {source_id}")
-
+        self.init_recording()
         while self.recorder_store.is_recording:
-            data, last_sample_time = self.get_data(stream)
-            last_received_time = local_clock()
+            data, last_sample_time, last_received_time = self.retrieve_data()
             if data is not None:
-                self.queue.extend(data.T.tolist())
-                if len(self.queue) >= self.real_time_store.visualisation_window_size:
-                    data = np.array(self.queue).T
-                    # self.visualizer_lock.acquire()
-                    freqs, amps, result = self.process_data(data)
-                    self.plot_store.set_freq_data(freqs, amps, result)
-                    self.assign_times(last_sample_time, last_received_time)
-                    # self.visualizer_lock.release()
+                # self.visualizer_lock.acquire()
+                freqs, amps, result = self.process_data(data)
+                self.plot_store.set_freq_data(freqs, amps, result)
+                self.assign_times(last_sample_time, last_received_time)
+                # self.visualizer_lock.release()
 
 
 class RealTimeVisualizer(RealTimeWorker):

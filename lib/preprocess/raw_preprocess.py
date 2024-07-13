@@ -4,6 +4,8 @@ from typing import List
 from enum import Enum
 from lib.utils import config_to_primitive
 from .models import ProcessStage
+import mne
+import numpy as np
 
 
 class RawPreprocessors(Enum):
@@ -11,10 +13,11 @@ class RawPreprocessors(Enum):
     BANDPASS_FILTER = 'bandpass_filter'
     RESAMPLE = 'resample'
     REFERENCE = 'reference'
+    CHANNEL_INTERPOLATION = 'channel_interpolation'
+    CHANNEL_PICKER = 'channel_picker'
 
 
 class RawPreprocessor(ABC):
-
     name: str
     stages: List[ProcessStage] | None = None
 
@@ -100,6 +103,76 @@ class Reference(RawPreprocessor):
         return raw
 
 
+class ChannelInterpolation(RawPreprocessor):
+
+    def __init__(self, threshold: float, stages: List[ProcessStage] | List[str] | None = None, verbose: bool = False):
+        super().__init__(RawPreprocessors.CHANNEL_INTERPOLATION.name, stages)
+        self.threshold = threshold
+        self.verbose = verbose
+
+    def mark_bad_segments(self, raw: BaseRaw):
+        try:
+            data = raw.get_data(copy=False)
+            if data.size == 0:
+                raise ValueError("The data is empty. Please check the raw instance.")
+            if not np.issubdtype(data.dtype, np.number):
+                raise ValueError("Data type is not numeric. Please provide valid EEG data.")
+            if self.threshold <= 0:
+                raise ValueError("Threshold must be a positive value.")
+
+            bad_segments = np.abs(data) > self.threshold
+            if not np.any(bad_segments):
+                if self.verbose:
+                    print("No segments exceed the threshold.")
+                return np.array([])
+            bad_times = raw.times[np.any(bad_segments, axis=0)]
+            return bad_times
+        except Exception as e:
+            print(f"An error occurred while marking bad segments: {e}")
+            return np.array([])
+
+    def interpolate_bad_segments(self, raw: BaseRaw):
+        try:
+            bad_times = self.mark_bad_segments(raw)
+            if bad_times.size == 0:
+                print("No bad segments to interpolate.")
+                return raw
+
+            durations = np.ones_like(bad_times) * (bad_times[1] - bad_times[0]) \
+                if bad_times.size > 1 else np.array([0.1])  # default duration
+
+            annotations = mne.Annotations(onset=bad_times, duration=durations, description='BAD_artifact',
+                                          orig_time=None)
+            raw.set_annotations(annotations)
+            raw = raw.interpolate_bads(reset_bads=True, mode='accurate', verbose=self.verbose)
+            return raw
+        except IndexError as e:
+            print(f"Index error occurred during interpolation: {e}")
+            return raw
+        except Exception as e:
+            print(f"An error occurred during interpolation: {e}")
+            return raw
+
+    def preprocess(self, raw: BaseRaw) -> BaseRaw:
+        try:
+            raw = self.interpolate_bad_segments(raw)
+            return raw
+        except Exception as e:
+            print(f"An error occurred during preprocessing: {e}")
+            return raw
+
+
+class ChannelPicker(RawPreprocessor):
+
+    def __init__(self, picks: List[str], stages: List[ProcessStage] | List[str] | None = None):
+        super().__init__(RawPreprocessors.CHANNEL_PICKER.name, stages)
+        self.picks = picks
+
+    def preprocess(self, raw: BaseRaw) -> BaseRaw:
+        raw.pick_channels(self.picks)
+        return raw
+
+
 def get_raw_preprocessor(name: str, **kwargs) -> RawPreprocessor:
     kwargs = config_to_primitive(kwargs)
     match name:
@@ -111,6 +184,10 @@ def get_raw_preprocessor(name: str, **kwargs) -> RawPreprocessor:
             return Resample(**kwargs)
         case RawPreprocessors.REFERENCE.value:
             return Reference(**kwargs)
+        case RawPreprocessors.CHANNEL_INTERPOLATION.value:
+            return ChannelInterpolation(**kwargs)
+        case RawPreprocessors.CHANNEL_PICKER.value:
+            return ChannelPicker(**kwargs)
         case _:
             raise ValueError(f'Unknown raw preprocessor {name}')
 

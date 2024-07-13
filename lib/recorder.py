@@ -7,7 +7,7 @@ from lib.utils import format_seconds
 from omegaconf import DictConfig
 from multiprocessing import Manager, Lock
 from lib.worker import RecordingWorker, PersistenceWorker, Worker, RealTimeRecorder, RealTimeWorker, \
-    RealTimeSSVEPDecoder, RealTimeVisualizer
+    RealTimeSSVEPDecoder, RealTimeVisualizer, RealTimeRecordingMode
 from lib.store import StreamType, StreamStore, RecorderStore, RealTimeStore, PlotStore
 from lib.persist import Persister, get_persisters, PersistingMode
 from lib.train.ssvep import train_ssvep_classifier
@@ -125,13 +125,18 @@ class Recorder:
 
     def initialise_real_time(self, config: DictConfig):
         if 'real_time' in config and config.real_time is not None and config.real_time.enabled:
+            recording_mode = RealTimeRecordingMode.from_str(config.real_time.recording_mode)
             self.real_time_store = RealTimeStore.from_config(config, self.manager)
             self.plot_store = PlotStore(self.manager)
-            # self.real_time_workers.append(RealTimeRecorder(self.recorder_lock, self.recorder_store, self.real_time_store))
+            if recording_mode == RealTimeRecordingMode.RECORDER:
+                self.real_time_workers.append(RealTimeRecorder(self.recorder_lock, self.recorder_store,
+                                                               self.real_time_store))
             self.real_time_workers.append(RealTimeSSVEPDecoder(self.recorder_lock, self.recorder_store,
                                                                self.real_time_store,
                                                                visualizer_lock=self.visualizer_lock,
-                                                               plot_store=self.plot_store, config=config))
+                                                               plot_store=self.plot_store, config=config,
+                                                               recording_mode=recording_mode
+                                                               ))
             self.real_time_workers.append(
                 RealTimeVisualizer(self.recorder_lock, self.recorder_store, self.real_time_store,
                                    self.plot_store, config))

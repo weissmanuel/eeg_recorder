@@ -19,6 +19,7 @@ class Preprocessors(Enum):
     SklearnClassifierReshape = 'sklearn_classifier_reshape'
     NOTCH_FILTER = 'notch_filter'
     BANDPASS_FILTER = 'bandpass_filter'
+    KALMAN_FILTER = 'kalman_filter'
 
 
 PreprocessResponse = Union[ndarray, Tuple[ndarray, Union[ndarray, None]]]
@@ -182,6 +183,41 @@ class FFT(Preprocessor):
         return data_freq
 
 
+class KalmanFilterPreprocessor(Preprocessor):
+    def __init__(self, stages: List[ProcessStage] | List[str] | None = None):
+        super().__init__(Preprocessors.KALMAN_FILTER.name, stages)
+        # Initialize Kalman filter parameters
+        self.A = np.eye(1)  # State transition matrix
+        self.H = np.eye(1)  # Observation matrix
+        self.Q = np.eye(1) * 0.0001  # Process noise covariance
+        self.R = np.eye(1) * 0.01  # Measurement noise covariance
+        self.P = np.eye(1)  # Estimate error covariance
+        self.x = np.zeros((1, 1))  # Initial state
+
+    def __call__(self, data: ndarray, labels: ndarray | None = None, *args, **kwargs) -> PreprocessResponse:
+        n_channels, n_times = data.shape
+        filtered_data = np.zeros((n_channels, n_times))
+
+        for channel in range(n_channels):
+            for t in range(n_times):
+                # Prediction
+                self.x = self.A @ self.x
+                self.P = self.A @ self.P @ self.A.T + self.Q
+
+                # Update
+                z = np.array([[data[channel, t]]])  # Observation
+                y = z - self.H @ self.x
+                S = self.H @ self.P @ self.H.T + self.R
+                K = self.P @ self.H.T @ np.linalg.inv(S)
+                self.x = self.x + K @ y
+                self.P = (np.eye(1) - K @ self.H) @ self.P
+
+                # Save filtered value
+                filtered_data[channel, t] = self.x
+
+        return filtered_data
+
+
 class SklearnClassifierReshape(Preprocessor):
     def __init__(self, stages: List[ProcessStage] | List[str] | None = None):
         super().__init__(Preprocessors.SklearnClassifierReshape.name, stages)
@@ -202,6 +238,8 @@ def get_preprocessor(name: str, **kwargs) -> Preprocessor:
             return EpochWindowSplitter(**kwargs)
         case Preprocessors.FFT.value:
             return FFT()
+        case Preprocessors.KALMAN_FILTER.value:
+            return KalmanFilterPreprocessor(**kwargs)
         case _:
             raise ValueError(f'Unknown preprocessor {name}')
 
