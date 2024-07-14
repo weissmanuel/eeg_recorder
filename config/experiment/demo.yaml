@@ -20,13 +20,13 @@ rt_preprocessors:
     freqs: [50]
     quality: 30
     sfreq: ${headset.sfreq}
-    n_channels: ${headset.n_eeg_channels}
+    n_channels: ${headset.n_channels}
   - name: 'bandpass_filter'
     low_cut: 4
     high_cut: 30
     order: 4
     sfreq: ${headset.sfreq}
-    n_channels: ${headset.n_eeg_channels}
+    n_channels: ${headset.n_channels}
 
 # Preprocessors applied to the raw input signal
 # received by the recorder / headset

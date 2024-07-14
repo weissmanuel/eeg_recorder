@@ -544,6 +544,7 @@ class PlotStore:
         self._last_sample_time = manager.Value('d', 0.0)
         self._last_received_time = manager.Value('d', 0.0)
         self._processing_time = manager.Value('d', 0.0)
+        self._history = manager.list()
 
     @property
     def x_time(self) -> List:
@@ -621,6 +622,10 @@ class PlotStore:
     def result(self):
         return self._result.value
 
+    @property
+    def history(self) -> List:
+        return list(self._history)
+
     @result.setter
     def result(self, value: float):
         self._result.value = value
@@ -643,4 +648,6 @@ class PlotStore:
         return self.processing_time - self.last_sample_time
 
     def get_delays(self) -> Tuple[float, float, float]:
-        return self.get_time_shift(), self.get_processing_delay(), self.get_total_delay()
+        t = self.get_time_shift(), self.get_processing_delay(), self.get_total_delay()
+        self._history.append(np.array(t, dtype=np.float64))
+        return t

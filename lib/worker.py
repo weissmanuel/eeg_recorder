@@ -171,7 +171,7 @@ class RecordingWorker(ProcessWorker):
         self.evaluate_time_shift(times, recording_stopped_at)
 
     def log_first_iteration(self, times: List[any]):
-        self.stream_store.first_sample_lsl_seconds = times[0].copy()
+        self.stream_store.first_sample_lsl_seconds = times[0]
         self.stream_store.first_sample_system_seconds = local_clock()
         self.stream_store.first_sample_datetime = datetime.utcnow()
         self.logger.debug(f"First Signal Time of {self.source_id}: {self.stream_store.first_sample_datetime}")
@@ -539,7 +539,7 @@ class RealTimeSSVEPDecoder(RealTimeDecoder):
         self.plot_store.y_time = data[channel].tolist()
 
     def predict(self, data: ndarray) -> float:
-        if False:
+        if self.decoder is not None:
             y_pred = self.decoder.predict(data)
             if len(y_pred) == 1:
                 return self.labels[int(y_pred[0])]

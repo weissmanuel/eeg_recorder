@@ -1,10 +1,10 @@
 
 
 defaults:
-  - experiment: demo
-  - headset: demo
+  - experiment: ssvep
+  - headset: unicorn
   - persistence: persistence
-  - psd: welch
+  - psd: scipy
   - real_time: default
   - recording: default
   - visualization: default
