@@ -2,3 +2,5 @@
 enabled: True
 buffer_size_seconds: 60
 recording_mode: 'DECODER' # 'RECORDER' or 'DECODER'
+
+decoder: ${experiment.decoding.decoder}

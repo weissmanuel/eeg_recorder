@@ -140,6 +140,7 @@ training:
 #            n_estimators: 200
 
 decoding:
+  decoder: ${decoders.ssvep}
   type: 'model' # threshold, model
 #  type: 'threshold' # threshold, model
   decoder_path: ${experiment.training.pipeline_path}

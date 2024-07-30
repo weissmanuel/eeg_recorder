@@ -62,4 +62,10 @@ epoch_preprocessors: []
 
 training: null
 
+decoding:
+  decoder: null
+  type: 'model' # threshold, model
+#  type: 'threshold' # threshold, model
+  decoder_path: null
+
 visualisation: ${visualization}

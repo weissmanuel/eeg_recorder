@@ -11,7 +11,7 @@ import math
 from mne_lsl.lsl import local_clock
 from lib.utils import format_seconds
 from multiprocessing import Process
-from lib.lsl import connect, disconnect
+from lib.lsl import connect, disconnect, Outlet, get_outlets
 from lib.store import RecorderStore, StreamStore, RealTimeStore, PlotStore
 import time
 from lib.persist import Persister
@@ -370,6 +370,7 @@ class RealTimeRecordingMode(Enum):
 
 class RealTimeDecoder(RealTimeWorker, _RealTimeRecorderMixin):
     stream: StreamLSL | None
+    outlets: List[Outlet] | None = None
 
     def __init__(self,
                  recorder_lock: Lock,
@@ -401,6 +402,14 @@ class RealTimeDecoder(RealTimeWorker, _RealTimeRecorderMixin):
             source_id = self.real_time_store.source_id
             self.stream = connect(source_id, self.real_time_store.stream_type, self.real_time_store.buffer_size_seconds)
             self.logger.info(f"Start Real-Time SSVEP Decoding for Stream: {source_id}")
+
+    def init_outlets(self):
+        if self.config.real_time.decoder is not None and self.config.real_time.decoder.outlets is not None:
+            self.outlets = get_outlets(self.config.real_time.decoder.outlets)
+
+    def initialize(self):
+        self.init_recording()
+        self.init_outlets()
 
     def init_decoder(self) -> Pipeline | BaseEstimator | None:
         model_type = self.config.experiment.decoding.type
@@ -469,6 +478,11 @@ class RealTimeDecoder(RealTimeWorker, _RealTimeRecorderMixin):
         raw = raw.pick(picks=['eeg'])
         raw = self.preprocess_raw(raw)
         return raw
+
+    def emit(self, data: ndarray | int | float):
+        if self.outlets is not None:
+            for outlet in self.outlets:
+                outlet.push(data)
 
 
 class RealTimeSSVEPDecoder(RealTimeDecoder):
@@ -561,7 +575,7 @@ class RealTimeSSVEPDecoder(RealTimeDecoder):
         return freqs, amps, result
 
     def work(self, lock: Lock):
-        self.init_recording()
+        self.initialize()
         while self.recorder_store.is_recording:
             data, last_sample_time, last_received_time = self.retrieve_data()
             if data is not None:
@@ -569,6 +583,7 @@ class RealTimeSSVEPDecoder(RealTimeDecoder):
                 freqs, amps, result = self.process_data(data)
                 self.plot_store.set_freq_data(freqs, amps, result)
                 self.assign_times(last_sample_time, last_received_time)
+                self.emit(result)
                 # self.visualizer_lock.release()
 
 
