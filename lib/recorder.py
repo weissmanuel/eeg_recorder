@@ -7,7 +7,7 @@ from lib.utils import format_seconds
 from omegaconf import DictConfig
 from multiprocessing import Manager, Lock
 from lib.worker import RecordingWorker, PersistenceWorker, Worker, RealTimeRecorder, RealTimeWorker, \
-    RealTimeSSVEPDecoder, RealTimeVisualizer, RealTimeRecordingMode
+    RealTimeSSVEPDecoder, RealTimeVisualizer, RealTimeRecordingMode, get_decoder
 from lib.store import StreamType, StreamStore, RecorderStore, RealTimeStore, PlotStore
 from lib.persist import Persister, get_persisters, PersistingMode
 from lib.train.ssvep import train_ssvep_classifier
@@ -131,12 +131,12 @@ class Recorder:
             if recording_mode == RealTimeRecordingMode.RECORDER:
                 self.real_time_workers.append(RealTimeRecorder(self.recorder_lock, self.recorder_store,
                                                                self.real_time_store))
-            self.real_time_workers.append(RealTimeSSVEPDecoder(self.recorder_lock, self.recorder_store,
-                                                               self.real_time_store,
-                                                               visualizer_lock=self.visualizer_lock,
-                                                               plot_store=self.plot_store, config=config,
-                                                               recording_mode=recording_mode
-                                                               ))
+            if config.real_time.decoder is not None:
+                self.real_time_workers.append(get_decoder(self.recorder_lock, self.recorder_store, self.real_time_store,
+                                                          visualizer_lock=self.visualizer_lock,
+                                                          plot_store=self.plot_store,
+                                                          config=config,
+                                                          recording_mode=recording_mode))
             self.real_time_workers.append(
                 RealTimeVisualizer(self.recorder_lock, self.recorder_store, self.real_time_store,
                                    self.plot_store, config))

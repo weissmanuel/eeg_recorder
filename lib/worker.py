@@ -708,3 +708,23 @@ class RealTimeVisualizer(RealTimeWorker):
         dpg.show_viewport()
         dpg.start_dearpygui()
         dpg.destroy_context()
+
+
+def get_decoder(recorder_lock: Lock,
+                recorder_store: RecorderStore,
+                real_time_store: RealTimeStore,
+                visualizer_lock: Lock,
+                plot_store: PlotStore,
+                config: DictConfig,
+                recording_mode: RealTimeRecordingMode = RealTimeRecordingMode.DECODER
+                ) -> RealTimeDecoder | None:
+    if config.real_time.decoder is not None and config.real_time.decoder.name == 'ssvep':
+        return RealTimeSSVEPDecoder(recorder_lock,
+                                    recorder_store,
+                                    real_time_store,
+                                    visualizer_lock=visualizer_lock,
+                                    plot_store=plot_store,
+                                    config=config,
+                                    recording_mode=recording_mode)
+    else:
+        raise ValueError(f"Decoder for {config.name} not supported yet.")
