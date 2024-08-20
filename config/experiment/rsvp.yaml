@@ -5,11 +5,67 @@ sources:
   - - 'rsvp_markers'
     - 'MARKER'
 
-persister: 'mne_raw_persister'
-persisting_mode: 'replace'
+persisters:
+  - ${persistence.persisters.mne_raw_persister}
 persister_workers: null
-#persister_workers:
-#  - name: 'default'
-#    interval: 30
+#  - ${persistence.workers.cyclic}
+
+labels: [0, 1]
+
+window_size_seconds: 1
+window_shift_seconds: 0.1
+
+
+rt_preprocessors: []
+
+# Preprocessors applied to the raw input signal
+# received by the recorder / headset
+#preprocessors: []
+preprocessors:
+  - name: 'notch_filter'
+    freqs: 50
+    quality: 30
+    sfreq: ${headset.sfreq}
+  - name: 'bandpass_filter'
+    low_cut: 4
+    high_cut: 30
+    order: 4
+    sfreq: ${headset.sfreq}
+
+
+# Preprocessors applied to the mne raw object
+raw_preprocessors: []
+#raw_preprocessors:
+#  - name: 'notch_filter'
+#    kwargs:
+#      freqs: 50
+#      method: 'iir'
+#      filter_length: 'auto'
+#      notch_widths: 5
+#  - name: 'bandpass_filter'
+#    kwargs:
+#      low_cut: 4
+#      high_cut: 30
+#      method: 'fir'
+#  - name: 'reference'
+#    kwargs:
+#      ref_channels: 'average'
+
+# Preprocessors applied to the mne split epochs
+epoch_preprocessors: []
+#epoch_preprocessors:
+#  - name: 'bandpass_filter'
+#    kwargs:
+#      low_cut: 4
+#      high_cut: 80
+#      method: 'iir'
 
 training: null
+
+decoding:
+  decoder: null
+  type: 'model' # threshold, model
+#  type: 'threshold' # threshold, model
+  decoder_path: null
+
+visualisation: ${visualization}

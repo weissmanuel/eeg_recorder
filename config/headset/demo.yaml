@@ -1,7 +1,9 @@
 
 
 source_id: 'demo'
+stream_type: 'EEG'
 n_channels: 2
+n_eeg_channels: 2
 channel_names: ['Fz', 'Cz']
 channel_types: ['eeg', 'eeg']
 sfreq: 250

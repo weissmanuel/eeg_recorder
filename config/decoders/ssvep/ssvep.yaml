@@ -1,0 +1,9 @@
+
+name: 'ssvep'
+#outlets: []
+outlets:
+  - source_id: 'ssvep_actuator'
+    # The following properties are optional and will be set to defaults if not provided
+    stype: 'MARKER'
+    n_channels: 1
+    sfreq: 0.0

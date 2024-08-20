@@ -488,7 +488,7 @@ def mldivide(A: ndarray,
     return slin.pinv(A) @ B
 
 
-def filterbank(srate: float,
+def filterbank_orig(srate: float,
                X: ndarray,
                num_subbands: Optional[int] = 5) -> ndarray:
     """
@@ -538,3 +538,51 @@ def suggested_weights_filterbank(num_subbands: Optional[int] = 5) -> List[float]
         Suggested weights of filterbank
     """
     return [i**(-1.25)+0.25 for i in range(1,num_subbands+1,1)]
+
+
+def filterbank(srate, X, num_subbands = 5):
+    """
+    Apply a filter bank to an EEG signal.
+
+    Parameters:
+    - X: 2D numpy array of EEG signals (channels x time points)
+    - fs: Sampling frequency (Hz)
+    - frequency_bands: Dictionary of frequency bands with names as keys and (lowcut, highcut) tuples as values
+
+    Returns:
+    - filterbank_X: 3D numpy array (num_subbands x channels x time points)
+    """
+    frequency_bands = {
+        'delta': (1, 4),
+        'theta': (4, 8),
+        'alpha': (8, 12),
+        'beta': (12, 30),
+        'gamma': (30, 100)
+    }
+
+    num_subbands = len(frequency_bands)
+
+    num_channels, num_time_points = X.shape
+
+    # Initialize the output array
+    filterbank_X = np.zeros((num_subbands, num_channels, num_time_points))
+
+    # Function to design a bandpass filter
+    def design_bandpass_filter(lowcut, highcut, fs, order=4):
+        nyquist = 0.5 * fs
+        low = lowcut / nyquist
+        high = highcut / nyquist
+        b, a = signal.butter(order, [low, high], btype='band')
+        return b, a
+
+    # Apply bandpass filter
+    def apply_filter(b, a, data):
+        return signal.filtfilt(b, a, data)
+
+    # Apply the filter bank to each channel in the EEG data
+    for i, (band, (lowcut, highcut)) in enumerate(frequency_bands.items()):
+        b, a = design_bandpass_filter(lowcut, highcut, srate)
+        for ch in range(num_channels):
+            filterbank_X[i, ch, :] = apply_filter(b, a, X[ch, :])
+
+    return filterbank_X

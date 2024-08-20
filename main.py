@@ -12,7 +12,7 @@ def start_recording(recorder: Recorder, interface: Interface):
 
 def stop_recording(recorder: Recorder, interface: Interface):
     interface.set_recording_status(text="Stop Recording...")
-    raw, info = recorder.complete_recording()
+    info = recorder.complete_recording()
     interface.set_recording_status(text="Recording Completed")
     interface.set_recording_info(info)
 
@@ -36,7 +36,7 @@ def stop_inference(recorder: Recorder, interface: Interface):
 
 @hydra.main(config_path="./config", config_name="config", version_base=None)
 def main(config: DictConfig):
-    recorder = Recorder(sources=config.sources, buffer_size_seconds=config.buffer_size_seconds, config=config)
+    recorder = Recorder(sources=config.sources, config=config)
     interface = Interface()
     interface.set_recording_start_action(lambda: start_recording(recorder, interface))
     interface.set_recording_stop_action(lambda: stop_recording(recorder, interface))

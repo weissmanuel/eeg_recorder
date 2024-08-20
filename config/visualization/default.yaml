@@ -1,0 +1,16 @@
+
+
+window_size_seconds: 5
+
+freq_range: [0, 30]
+freq_y_limits: [0, 1.2]
+freq_normalize: false
+freq_scale: 'log'
+
+freq_x_label: 'Power/Frequency (dB/Hz)'
+freq_y_label: 'Frequency (Hz)'
+
+time_y_limits: [-2, 2]
+time_normalize: false
+time_x_label: 'Time (s)'
+time_y_label: 'Amplitude (uV)'

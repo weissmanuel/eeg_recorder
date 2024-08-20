@@ -18,7 +18,9 @@ from .utils import (
     svd, repmat
 )
 from lib.train.utils import generate_harmonics
-from lib.preprocess.algorithms.utils import suggested_weights_filterbank
+from lib.train.algorithms.utils import suggested_weights_filterbank
+from sklearn.base import TransformerMixin, ClassifierMixin
+from sklearn.cross_decomposition import CCA
 
 
 def _msetcca_cal_template_U(X_single_stimulus: ndarray,
@@ -970,7 +972,7 @@ class SCCA_canoncorr(BaseModel):
                                   sfreq=self.sfreq,
                                   num_harmonics=self.n_harmonics)
 
-    def fit(self, X: Optional[List[ndarray]] = None, Y: Optional[List[int]] = None,*argv, **kwargs):
+    def fit(self, X: Optional[List[ndarray]] = None, Y: Optional[List[int]] = None, *argv, **kwargs):
         """
         Parameters
         ----------------------
@@ -1116,7 +1118,7 @@ class SCCA_qr(BaseModel):
                                   sfreq=self.sfreq,
                                   num_harmonics=self.n_harmonics)
 
-    def fit(self, X: Optional[List[ndarray]] = None, Y: Optional[List[int]] = None,*argv, **kwargs):
+    def fit(self, X: Optional[List[ndarray]] = None, Y: Optional[List[int]] = None, *argv, **kwargs):
         """
         Parameters
         -----------
@@ -1789,3 +1791,5 @@ class MSCCA(BaseModel):
               np.sign(r2_single) * np.square(r2_single)) for r1_single, r2_single in zip(r1, r2)]
 
         return Y_pred, r
+
+

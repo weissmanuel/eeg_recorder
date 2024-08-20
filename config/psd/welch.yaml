@@ -1,0 +1,6 @@
+
+method: 'welch'
+
+vis_kwargs:
+  fmin: 1.0
+  fmax: 50.0

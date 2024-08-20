@@ -1,0 +1,8 @@
+
+persister_workers: null
+#persister_workers:
+#  - ${persistence.workers.cyclic}
+
+cyclic:
+  name: 'default'
+  interval: 30
