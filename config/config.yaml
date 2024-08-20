@@ -1,8 +1,9 @@
 
 
 defaults:
-  - experiment: ssvep
-  - headset: unicorn
+  - decoders: decoders
+  - experiment: demo
+  - headset: demo
   - persistence: persistence
   - psd: scipy
   - real_time: default
