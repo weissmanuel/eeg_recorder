@@ -1,0 +1,6 @@
+
+
+mne_raw_persister:
+  name: 'mne_raw_persister'
+  kwargs:
+    persisting_mode: 'replace' # 'replace' or 'continuous'

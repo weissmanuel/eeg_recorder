@@ -1,0 +1,4 @@
+
+defaults:
+  - ssvep: ssvep
+  - _self_
