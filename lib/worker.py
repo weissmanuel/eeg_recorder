@@ -116,7 +116,6 @@ class RecordingWorker(ProcessWorker):
                  stream_store: StreamStore,
                  buffer_size_seconds: float
                  ):
-
         super().__init__(lock)
 
         self.recorder_store = recorder_store
@@ -127,10 +126,7 @@ class RecordingWorker(ProcessWorker):
         self.process = self.get_new_process()
         self.sleep_time = 0.01
 
-    def buffer_size(self, stream: StreamLSL) -> int:
-        if stream is not None:
-            sfreq = stream.info['sfreq']
-            return math.ceil(self.buffer_size_seconds * sfreq)
+    def buffer_size(self, *args, **kwargs) -> int:
         return 0
 
     @property
@@ -148,13 +144,8 @@ class RecordingWorker(ProcessWorker):
     def reset(self):
         self.stream_store.reset()
 
-    def retrieve_stream_info(self, stream: StreamLSL):
-        self.stream_store.stream_info = stream.info
-        self.stream_store.n_channels = len(stream.ch_names)
-        self.stream_store.has_stream = True
-        self.stream_store.sfreq = stream.info['sfreq']
-        self.stream_store.time_shift = 0.0
-        self.stream_store.start_time_seconds = local_clock()
+    def retrieve_stream_info(self, *args, **kwargs):
+        pass
 
     def evaluate_time_shift(self, times: Union[List, None] = None, recording_stopped_at: Union[float, None] = None):
         if times is not None:
@@ -201,6 +192,35 @@ class RecordingWorker(ProcessWorker):
         else:
             offset = self.stream_store.current_time - self.stream_store.last_sample_lsl_seconds
             return self.recorder_store.is_recording or offset < self.stream_store.safety_offset_seconds
+
+    def work(self, lock: Lock):
+        pass
+
+
+class LSLRecordingWorker(RecordingWorker):
+
+    def __init__(self,
+                 lock: Lock,
+                 recorder_store: RecorderStore,
+                 stream_store: StreamStore,
+                 buffer_size_seconds: float
+                 ):
+
+        super().__init__(lock, recorder_store, stream_store, buffer_size_seconds)
+
+    def buffer_size(self, stream: StreamLSL) -> int:
+        if stream is not None:
+            sfreq = stream.info['sfreq']
+            return math.ceil(self.buffer_size_seconds * sfreq)
+        return 0
+
+    def retrieve_stream_info(self, stream: StreamLSL):
+        self.stream_store.stream_info = stream.info
+        self.stream_store.n_channels = len(stream.ch_names)
+        self.stream_store.has_stream = True
+        self.stream_store.sfreq = stream.info['sfreq']
+        self.stream_store.time_shift = 0.0
+        self.stream_store.start_time_seconds = local_clock()
 
     def work(self, lock: Lock):
 
@@ -312,6 +332,25 @@ class _RealTimeRecorderMixin:
     def __init__(self, real_time_store: RealTimeStore):
         self.real_time_store = real_time_store
 
+    def connect(self, *args, **kwargs) -> any:
+        pass
+
+    def get_stream_data(self, *args, **kwargs) -> any:
+        pass
+
+    def get_data(self, *args, **kwargs) -> any:
+        pass
+
+
+class _LSLRealTimeRecorderMixin(_RealTimeRecorderMixin):
+
+    def __init__(self, real_time_store: RealTimeStore):
+        super().__init__(real_time_store)
+
+    def connect(self) -> StreamLSL:
+        source_id = self.real_time_store.source_id
+        return connect(source_id, self.real_time_store.stream_type, self.real_time_store.buffer_size_seconds)
+
     def get_stream_data(self, stream: StreamLSL) -> Tuple[ndarray, float] | Tuple[None, None]:
         window_size = stream.n_new_samples / self.real_time_store.sfreq
         if window_size > 0:
@@ -324,7 +363,16 @@ class _RealTimeRecorderMixin:
     def get_data(self, stream: StreamLSL) -> ndarray | None:
         if self.real_time_store.source_id == 'demo':
             target_frequencies = self.real_time_store.labels if self.real_time_store.labels is not None else None
-            return generate_demo_data(self.real_time_store, num_channels=2, target_frequencies=target_frequencies)
+
+            t = int(local_clock())
+            toggle = (t // 5) % 2 == 0
+            if toggle:
+                weights = np.array([1, 0.2, 0.2, 0])
+            else:
+                weights = np.array([0.2, 1, 0.2, 0])
+
+            return generate_demo_data(self.real_time_store, num_channels=2, target_frequencies=target_frequencies,
+                                      weights=weights)
         else:
             return self.get_stream_data(stream)
 
@@ -341,14 +389,27 @@ class RealTimeRecorder(RealTimeWorker, _RealTimeRecorderMixin):
         self.process: Process = self.get_new_process()
 
     def work(self, lock: Lock):
+        pass
+
+
+class LSLRealTimeRecorder(RealTimeRecorder, _LSLRealTimeRecorderMixin):
+
+    def __init__(self,
+                 lock: Lock,
+                 recorder_store: RecorderStore,
+                 real_time_store: RealTimeStore
+                 ):
+        super().__init__(lock, recorder_store, real_time_store)
+
+    def work(self, lock: Lock):
         source_id = self.real_time_store.source_id
-        stream = connect(source_id, self.real_time_store.stream_type, self.real_time_store.buffer_size_seconds)
+        stream = self.connect()
 
         if (stream is not None and stream.connected) or source_id == 'demo':
 
             self.logger.info(f"Start Real-Time Recording for Stream: {source_id}")
             while self.recorder_store.is_recording:
-                data, last_timestep = self.get_data(stream)
+                data, last_timestep = self.get_data(stream=stream)
                 if data is not None:
                     self.lock.acquire()
                     self.real_time_store.add_data(data.T)

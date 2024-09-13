@@ -6,8 +6,8 @@ import time
 from lib.utils import format_seconds
 from omegaconf import DictConfig
 from multiprocessing import Manager, Lock
-from lib.worker import RecordingWorker, PersistenceWorker, Worker, RealTimeRecorder, RealTimeWorker, \
-    RealTimeSSVEPDecoder, RealTimeVisualizer, RealTimeRecordingMode, get_decoder
+from lib.worker import (RecordingWorker, LSLRecordingWorker, PersistenceWorker, Worker, LSLRealTimeRecorder,
+                        RealTimeWorker, RealTimeVisualizer, RealTimeRecordingMode, get_decoder)
 from lib.store import StreamType, StreamStore, RecorderStore, RealTimeStore, PlotStore
 from lib.persist import Persister, get_persisters, PersistingMode
 from lib.train.ssvep import train_ssvep_classifier
@@ -108,8 +108,8 @@ class Recorder:
             source_id, stream_type = source
             stream_type = StreamType.from_str(stream_type)
             stream_store = StreamStore(self.manager, source_id, stream_type)
-            recorder = RecordingWorker(self.recorder_lock, self.recorder_store, stream_store,
-                                       self.config.recording.buffer_size_seconds)
+            recorder = LSLRecordingWorker(self.recorder_lock, self.recorder_store, stream_store,
+                                          self.config.recording.buffer_size_seconds)
             self.recorders.append(recorder)
 
     def initialise_persisters(self, config: DictConfig):
@@ -129,7 +129,7 @@ class Recorder:
             self.real_time_store = RealTimeStore.from_config(config, self.manager)
             self.plot_store = PlotStore(self.manager)
             if recording_mode == RealTimeRecordingMode.RECORDER:
-                self.real_time_workers.append(RealTimeRecorder(self.recorder_lock, self.recorder_store,
+                self.real_time_workers.append(LSLRealTimeRecorder(self.recorder_lock, self.recorder_store,
                                                                self.real_time_store))
             if config.real_time.decoder is not None:
                 self.real_time_workers.append(get_decoder(self.recorder_lock, self.recorder_store, self.real_time_store,

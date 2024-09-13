@@ -42,9 +42,9 @@ def generate_channel_data(freqs: ndarray, weights: ndarray, t: ndarray) -> ndarr
 def generate_demo_data(
         real_time_store: RealTimeStore,
         num_channels: int = 2,
-        target_frequencies: ndarray | list[int] | None = np.array([8, 10, 35, 50])
+        target_frequencies: ndarray | list[int] | None = np.array([8, 10, 35, 50]),
+        weights: ndarray | list[float] | None = np.array([1, 0.2, 0.2, 1])
 ) -> Tuple[ndarray, float]:
-    weights = np.array([1, 0.2, 0.2, 1])
 
     real_time_store.iterations = real_time_store.iterations \
         if real_time_store.iterations < len(real_time_store.demo_time_space) else 0
